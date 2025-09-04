@@ -1,0 +1,39 @@
+{
+  "firestore": {
+    "database": "(default)",
+    "location": "me-west1",
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  },
+  "functions": [
+    {
+      "source": "functions",
+      "codebase": "default",
+      "ignore": [
+        "node_modules",
+        ".git",
+        "firebase-debug.log",
+        "firebase-debug.*.log",
+        "*.local"
+      ],
+      "predeploy": [
+        "npm --prefix functions run lint",
+        "npm --prefix functions run build"
+      ]
+    }
+  ],
+  "storage": {
+    "rules": "storage.rules"
+  },
+  "emulators": {
+    "auth": { "port": 9099 },
+    "functions": { "port": 5001 },
+    "firestore": { "port": 8080 },
+    "database": { "port": 9000 },
+    "storage": { "port": 9199 },
+    "ui": { "enabled": true },
+    "hub": { "port": 4400 },
+    "singleProjectMode": true,
+    "exportOnExit": { "path": "emulator-data" }
+  }
+}

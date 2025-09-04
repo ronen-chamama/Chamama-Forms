@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import useUser from "../../../hooks/useUser";
+import useUser from "../../../../hooks/useUser";
 import { useRouter } from "next/navigation";
 import {
   DndContext,
@@ -15,7 +15,7 @@ import {
   arrayMove
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { db } from "../../../lib/firebase";
+import { db } from "../../../../lib/firebase";
 import { collection, addDoc } from "firebase/firestore";
 
 // שדות זמינים
