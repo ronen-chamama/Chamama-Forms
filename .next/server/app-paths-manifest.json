@@ -1,3 +1,8 @@
 {
-  "/favicon.ico/route": "app/favicon.ico/route.js"
+  "/_not-found/page": "app/_not-found/page.js",
+  "/f/[id]/page": "app/f/[id]/page.js",
+  "/favicon.ico/route": "app/favicon.ico/route.js",
+  "/forms/[id]/edit/page": "app/forms/[id]/edit/page.js",
+  "/login/page": "app/login/page.js",
+  "/page": "app/page.js"
 }

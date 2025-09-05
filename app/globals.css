@@ -1,7 +1,5 @@
 @import "tailwindcss";
-@import "quill/dist/quill.snow.css";
 
-/* דברים קטנים שרוצים בבסיס */
 @layer base {
   html { direction: rtl; }
 }
