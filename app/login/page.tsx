@@ -1,22 +1,68 @@
 "use client";
-import { useState } from "react";
+
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { auth } from "@/lib/firebaseClient";
-import { signInWithEmailAndPassword, sendPasswordResetEmail } from "firebase/auth";
+import { onAuthStateChanged, signInWithEmailAndPassword } from "firebase/auth";
 
 export default function LoginPage() {
-  const [email,setEmail]=useState(""); const [password,setPassword]=useState(""); const [msg,setMsg]=useState("");
-  async function onLogin(e:any){ e.preventDefault(); setMsg(""); try{ await signInWithEmailAndPassword(auth,email,password); location.href="/app"; }catch(err:any){ setMsg(err.message); } }
-  async function onReset(){ if(!email){setMsg("נא להקליד אימייל"); return;} try{ await sendPasswordResetEmail(auth,email); setMsg("נשלח מייל איפוס סיסמה"); }catch(err:any){ setMsg(err.message); } }
+  const router = useRouter();
+  const [email, setEmail] = useState("");
+  const [pass, setPass] = useState("");
+  const [err, setErr] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  // אם כבר מחוברים — לעבור ל־/forms
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, (u) => {
+      if (u) router.replace("/");
+    });
+    return () => unsub();
+  }, [router]);
+
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setErr(null);
+    setLoading(true);
+    try {
+      await signInWithEmailAndPassword(auth, email.trim(), pass);
+      router.replace("/"); // ← היה /app
+    } catch (e: any) {
+      setErr(e?.message || "Login failed");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
-    <main dir="rtl" className="p-6 max-w-md mx-auto">
-      <h1 className="text-2xl mb-4">התחברות</h1>
-      <form onSubmit={onLogin} className="flex flex-col gap-3">
-        <input placeholder="אימייל" value={email} onChange={e=>setEmail(e.target.value)} className="border p-2" />
-        <input placeholder="סיסמה" type="password" value={password} onChange={e=>setPassword(e.target.value)} className="border p-2" />
-        <button className="border p-2">כניסה</button>
+    <main className="min-h-screen flex items-center justify-center p-6">
+      <form onSubmit={onSubmit} className="w-full max-w-sm space-y-4 border rounded-lg bg-white p-6">
+        <h1 className="text-xl font-semibold text-center">כניסה</h1>
+        {err && <div className="text-red-600 text-sm">{err}</div>}
+        <input
+          className="w-full border rounded p-2"
+          placeholder="אימייל"
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          dir="ltr"
+        />
+        <input
+          className="w-full border rounded p-2"
+          placeholder="סיסמה"
+          type="password"
+          value={pass}
+          onChange={(e) => setPass(e.target.value)}
+          dir="ltr"
+        />
+        <button
+          type="submit"
+          disabled={loading}
+          className="w-full rounded bg-blue-600 text-white py-2 disabled:opacity-50"
+        >
+          {loading ? "נכנס..." : "כניסה"}
+        </button>
       </form>
-      <button onClick={onReset} className="underline mt-3">שכחתי סיסמה</button>
-      {msg && <p className="mt-3 text-sm text-red-600">{msg}</p>}
     </main>
   );
 }
