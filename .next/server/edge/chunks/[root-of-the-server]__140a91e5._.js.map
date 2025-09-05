@@ -1,0 +1,6 @@
+{
+  "version": 3,
+  "sources": [],
+  "sections": [
+    {"offset": {"line": 16, "column": 0}, "map": {"version":3,"sources":["turbopack:///[project]/middleware.js"],"sourcesContent":["// middleware.js\r\nimport { NextResponse } from \"next/server\";\r\nimport { NextRequest } from \"next/server\";\r\n\r\nexport function middleware(request) {\r\n  const { pathname } = request.nextUrl;\r\n\r\n  // הרשימה המוגנת: כל מה שמתחיל ב-/dashboard\r\n  if (pathname.startsWith(\"/dashboard\")) {\r\n    const token = request.cookies.get(\"authToken\")?.value;\r\n\r\n    // אם אין טוקן (משתמש לא מחובר) -> Redirect\r\n    if (!token) {\r\n      const url = new URL(\"/login\", request.url);\r\n      return NextResponse.redirect(url);\r\n    }\r\n  }\r\n  return NextResponse.next();\r\n}\r\n\r\nexport const config = {\r\n  matcher: [\"/dashboard/:path*\"], // דפוסים להגנה\r\n};\r\n"],"names":[],"mappings":"AAAA,gBAAgB;;;;;;;AAChB;AAAA;;;AAGO,SAAS,WAAW,OAAO;IAChC,MAAM,EAAE,QAAQ,EAAE,GAAG,QAAQ,OAAO;IAEpC,2CAA2C;IAC3C,IAAI,SAAS,UAAU,CAAC,eAAe;QACrC,MAAM,QAAQ,QAAQ,OAAO,CAAC,GAAG,CAAC,cAAc;QAEhD,2CAA2C;QAC3C,IAAI,CAAC,OAAO;YACV,MAAM,MAAM,IAAI,IAAI,UAAU,QAAQ,GAAG;YACzC,OAAO,gMAAY,CAAC,QAAQ,CAAC;QAC/B;IACF;IACA,OAAO,gMAAY,CAAC,IAAI;AAC1B;AAEO,MAAM,SAAS;IACpB,SAAS;QAAC;KAAoB;AAChC"}}]
+}

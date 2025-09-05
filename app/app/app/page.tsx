@@ -30,6 +30,7 @@ export default function AppHome() {
             <div>{f.title}</div>
             <div className="space-x-2 space-x-reverse">
               <a className="underline" href={`/app/forms/${f.id}/edit`}>עריכה</a>
+               <a className="underline" href={`/app/forms/${f.id}/submissions`}>הגשות</a>
               <a className="underline" href={`/f/${f.id}`}>קישור להורה</a>
             </div>
           </li>

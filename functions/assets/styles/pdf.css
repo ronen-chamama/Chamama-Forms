@@ -1,0 +1,25 @@
+* { box-sizing: border-box; }
+html, body { margin:0; padding:0; }
+body { font-family: 'NotoHeb', Arial, sans-serif; color:#111; }
+
+.header, .footer { display:flex; justify-content:space-between; align-items:center; }
+.header { border-bottom:2px solid #222; padding:8px 0 12px; margin-bottom:16px; }
+.header .title { font-size:20px; font-weight:700; }
+.header .brand { font-size:14px; opacity:0.8; }
+
+.footer { border-top:1px solid #ccc; padding-top:8px; margin-top:24px; font-size:11px; color:#666; }
+.footer .page-number::after { content: counter(page) " / " counter(pages); }
+
+.content { font-size:12px; }
+
+.fields .row { display:flex; gap:12px; padding:8px 0; border-bottom:1px solid #eee; }
+.fields .row:last-child { border-bottom:none; }
+.fields .label { min-width:140px; font-weight:600; }
+.fields .value { white-space:pre-wrap; word-break:break-word; }
+
+.signature-block { margin-top:24px; }
+.signature { display:flex; align-items:center; gap:12px; }
+.signature .sig-label { font-weight:600; }
+.signature img { max-height:80px; border:1px solid #ccc; padding:4px; background:#fff; }
+
+@page { size: A4; margin: 20mm 15mm; }
