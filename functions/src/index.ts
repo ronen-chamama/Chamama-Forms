@@ -3,10 +3,28 @@ import * as functions from "firebase-functions";
 import * as fs from "fs";
 import * as path from "path";
 import puppeteer, { Browser } from "puppeteer";
-import { google } from "googleapis";
-import { Readable } from "stream";
+import nodemailer from "nodemailer";
+import type Mail from "nodemailer/lib/mailer";
+import SMTPTransport from "nodemailer/lib/smtp-transport";
+import { getFirestore, FieldValue } from "firebase-admin/firestore";
 
-/** טיפוס שדה בסיסי (ל־legacy PDF) */
+
+/**
+ * Required ENV (local + prod):
+ *  - SMTP_HOST
+ *  - SMTP_PORT                 (465 for SSL, 587 for STARTTLS)
+ *  - SMTP_SECURE               ("true" for 465, else "false")
+ *  - SMTP_USER
+ *  - SMTP_PASS                 (use functions:secrets:set in prod)
+ *  - SMTP_FROM                 (optional, fallback: SMTP_USER)
+ *  - DEFAULT_NOTIFY_EMAILS     (optional, comma-separated fallback list)
+ *
+ * Client payload (callable):
+ *  - formId: string
+ *  - answers: Record<string, any>   (must include: studentName, group)
+ *  - signatureDataUrl: string|null  (data:image/png;base64,...)
+ */
+
 type Field = {
   id: string;
   type: "richtext" | "text" | "phone" | "email" | "select" | "radio" | "checkbox" | "signature";
@@ -15,85 +33,47 @@ type Field = {
   required?: boolean;
 };
 
-/** אתחול Firebase עם bucket ברירת מחדל (ל־Storage ב־legacy) */
-const firebaseConfigEnv = process.env.FIREBASE_CONFIG ? JSON.parse(process.env.FIREBASE_CONFIG) : null;
-const PROJECT_ID =
-  process.env.GCLOUD_PROJECT ||
-  process.env.GCP_PROJECT ||
-  firebaseConfigEnv?.projectId ||
-  "demo-chamama";
-const DEFAULT_BUCKET = process.env.STORAGE_BUCKET || `${PROJECT_ID}.appspot.com`;
+admin.initializeApp();
 
-admin.initializeApp({ storageBucket: DEFAULT_BUCKET });
-
-/** עזרי טקסט/שגיאות */
+/** ---------- helpers ---------- */
 function stripHtml(html: string) {
   return String(html).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
-}
-function isStorageEmulator() {
-  return !!process.env.FIREBASE_STORAGE_EMULATOR_HOST;
-}
-function emulatorDownloadUrl(bucketName: string, objectPath: string) {
-  const host = process.env.FIREBASE_STORAGE_EMULATOR_HOST || "127.0.0.1:9199";
-  const enc = encodeURIComponent(objectPath);
-  return `http://${host}/v0/b/${bucketName}/o/${enc}?alt=media`;
 }
 function fail(code: functions.https.FunctionsErrorCode, message: string, details?: any): never {
   console.error("[func error]", message, details || "");
   throw new functions.https.HttpsError(code, message, details);
 }
-/** שומר עברית ואנגלית, רווח/נקודה/מקף/קו תחתון */
+/** שמירת תווי עברית/אנגלית; מנקה תווים אסורים לשם קובץ */
 function safeFileName(s: string) {
   return (s || "")
     .toString()
     .normalize("NFKD")
-    .replace(/[^\w\u0590-\u05FF\s.\-]/g, "")
+    .replace(/[\\/:*?"<>|]/g, " ")
+    .replace(/[^\w\u0590-\u05FF.\- ]/g, "")
     .trim()
     .replace(/\s+/g, " ");
 }
+function escHtml(s: any) {
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
 
-/** נתיבי נכסים (אחרי build __dirname מצביע ל-/lib) */
+/** ---------- assets (after build, __dirname -> /lib) ---------- */
 const ASSETS_DIR = path.resolve(__dirname, "../assets");
 const TEMPLATE_PATH = path.join(ASSETS_DIR, "templates", "submission.html");
 const CSS_PATH = path.join(ASSETS_DIR, "styles", "pdf.css");
 const FONT_PATH = path.join(ASSETS_DIR, "fonts", "NotoSansHebrew-Regular.ttf");
 
-/** יצירת/איתור תיקייה בדרייב (תומך גם בכוננים שיתופיים) */
-async function ensureFolder(drive: any, name: string, parentId: string): Promise<string> {
-  const esc = String(name).replace(/'/g, "\\'");
-  const q = `name = '${esc}' and mimeType = 'application/vnd.google-apps.folder' and '${parentId}' in parents and trashed = false`;
-
-  const { data } = await drive.files.list({
-    q,
-    fields: "files(id,name)",
-    includeItemsFromAllDrives: true,
-    supportsAllDrives: true,
-    pageSize: 10,
-  });
-
-  if (data.files && data.files.length > 0 && data.files[0].id) {
-    return data.files[0].id as string;
-  }
-
-  const create = await drive.files.create({
-    requestBody: {
-      name,
-      mimeType: "application/vnd.google-apps.folder",
-      parents: [parentId],
-    },
-    fields: "id",
-    supportsAllDrives: true,
-  });
-
-  if (!create.data.id) throw new Error("Failed to create Drive folder (no id returned)");
-  return create.data.id;
-}
-
-/* =========================================================================
-   (1) NEW: submitFormToDrive — ייצור PDF ושמירה ל-Google Drive
-   ROOT → <קבוצה> → <שם הטופס> → "<שם החניכ.ה> - <קבוצה> - <כותרת הטופס>.pdf"
-   ========================================================================= */
-
+/** =========================================================================
+ *  submitFormToDrive  (שם נשמר לתאימות לקוח)
+ *  - מייצר PDF RTL עם גופן עברי מוטמע
+ *  - שולח את ה-PDF במייל (notifyEmails מהטופס או DEFAULT_NOTIFY_EMAILS)
+ *  - מעלה קאונטר submissionCount בטופס
+ *  ========================================================================= */
 export const submitFormToDrive = functions
   .runWith({ memory: "1GB", timeoutSeconds: 120 })
   .https.onCall(async (data) => {
@@ -103,41 +83,35 @@ export const submitFormToDrive = functions
 
     if (!formId) fail("invalid-argument", "formId is required");
 
-    // טען טופס
-    const db = admin.firestore();
+    // טוען את מסמך הטופס
+    const db = getFirestore();
     const formSnap = await db.doc(`forms/${formId}`).get();
     if (!formSnap.exists) fail("not-found", "form not found");
     const form = formSnap.data() as any;
 
     const title = String(form?.title || "טופס");
-    const schema: Array<{ id: string; type: string; label: string; options?: string[] }> = form?.schema || [];
+    const schema: Field[] = (form?.schema || []) as Field[];
 
-    // שדות חובה גלובליים
+    // שדות חובה גלובליים (שדה ראשון ושדה קבוצה)
     const studentName = String(answers["studentName"] || "").trim();
     const groupVal = String(answers["group"] || "").trim();
-    if (!studentName) fail("invalid-argument", "studentName is required");
-    if (!groupVal) fail("invalid-argument", "group is required");
+    if (!studentName) fail("invalid-argument", "answers.studentName is required");
+    if (!groupVal) fail("invalid-argument", "answers.group is required");
 
-    // נכסי PDF
+    // וידוא קבצי נכסים
     const missing: string[] = [];
     if (!fs.existsSync(TEMPLATE_PATH)) missing.push(TEMPLATE_PATH);
     if (!fs.existsSync(CSS_PATH)) missing.push(CSS_PATH);
     if (!fs.existsSync(FONT_PATH)) missing.push(FONT_PATH);
     if (missing.length) fail("failed-precondition", "Missing asset files", { missing });
 
+    // קריאת נכסים
     const templateHtml = fs.readFileSync(TEMPLATE_PATH, "utf8");
     const css = fs.readFileSync(CSS_PATH, "utf8");
     const fontBase64 = fs.readFileSync(FONT_PATH).toString("base64");
     const fontDataUrl = `data:font/ttf;base64,${fontBase64}`;
 
-    const escHtml = (s: any) =>
-      String(s)
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#39;");
-
+    // בניית תוכן (meta rows + schema rows)
     const metaRows =
       `<div class="row"><div class="label">שם החניכ.ה</div><div class="value">${escHtml(studentName)}</div></div>` +
       `<div class="row"><div class="label">קבוצה</div><div class="value">${escHtml(groupVal)}</div></div>`;
@@ -145,7 +119,7 @@ export const submitFormToDrive = functions
     const rowsFromSchema = schema
       .filter((f) => f.type !== "signature")
       .map((f) => {
-        let v = answers[f.id];
+        let v = (answers as any)[f.id];
         if (v == null) v = "";
         if (Array.isArray(v)) v = v.join(", ");
         if (f.type === "richtext") v = stripHtml(String(v));
@@ -175,7 +149,7 @@ export const submitFormToDrive = functions
       .replace(/{{\s*rows\s*}}/gi, metaRows + rowsFromSchema)
       .replace(/{{\s*signature\s*}}/gi, sigHtml);
 
-    // יצירת PDF
+    // הפקת PDF
     let browser: Browser | null = null;
     try {
       browser = await puppeteer.launch({
@@ -184,198 +158,88 @@ export const submitFormToDrive = functions
       });
       const page = await browser.newPage();
       await page.setContent(html, { waitUntil: "networkidle0" });
-      const pdfBuffer = await page.pdf({
+
+      // שים לב: page.pdf מחזיר Uint8Array – ממירים ל-Buffer כדי להתאים ל-nodemailer
+      const pdfUint8 = await page.pdf({
         format: "A4",
         printBackground: true,
         margin: { top: "20mm", bottom: "20mm", left: "15mm", right: "15mm" },
         preferCSSPageSize: true,
       });
+      const pdfBuffer = Buffer.from(pdfUint8);
 
-      // Google Drive
-      const DRIVE_ROOT = process.env.DRIVE_ROOT_FOLDER_ID;
-      if (!DRIVE_ROOT) fail("failed-precondition", "DRIVE_ROOT_FOLDER_ID is not set");
+      // -------- שליחה במייל (במקום Drive) --------
+      const fromForm: string[] = Array.isArray(form?.notifyEmails) ? form.notifyEmails : [];
+      const fallbackList =
+        (process.env.DEFAULT_NOTIFY_EMAILS || "")
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
 
-      const auth = new google.auth.GoogleAuth({ scopes: ["https://www.googleapis.com/auth/drive.file"] });
-      const client = await auth.getClient();
-      const projectId =
-        (await auth.getProjectId().catch(() => process.env.GCLOUD_PROJECT || process.env.GOOGLE_CLOUD_PROJECT)) ||
-        null;
+      const recipients = fromForm.length ? fromForm : fallbackList;
+      if (recipients.length === 0) {
+        fail(
+          "failed-precondition",
+          "No recipients configured. Add 'notifyEmails' array on the form doc OR set DEFAULT_NOTIFY_EMAILS env var."
+        );
+      }
 
-      console.log("[ADC identity]", {
-        projectId,
-        clientType: (client as any)?.constructor?.name,
-        clientEmail: (client as any).email || (client as any).subject || null,
-      });
+      const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM } = process.env;
+const secure = Number(SMTP_PORT) === 465;  // 465 => true, אחרת false
 
-      const drive = google.drive({ version: "v3", auth });
+const transporter = nodemailer.createTransport({
+  host: SMTP_HOST,
+  port: Number(SMTP_PORT),
+  secure,
+  auth: { user: SMTP_USER!, pass: SMTP_PASS! },
+  connectionTimeout: 10000,
+  socketTimeout: 20000,
+  tls: { rejectUnauthorized: true },
+} as SMTPTransport.Options);
 
-      // מבנה תיקיות: ROOT → קבוצה → שם הטופס
-      const groupFolderId = await ensureFolder(drive, groupVal, DRIVE_ROOT);
-      const formFolderId = await ensureFolder(drive, title, groupFolderId);
 
       const fileName = `${safeFileName(studentName)} - ${safeFileName(groupVal)} - ${safeFileName(title)}.pdf`;
+      const subject = `טופס חדש: ${title} — ${studentName} (${groupVal})`;
+      const htmlBody = `
+        <div dir="rtl" style="font-family:Arial,Helvetica,sans-serif">
+          <p>שלום,</p>
+          <p>התקבלה הגשה חדשה לטופס: <b>${escHtml(title)}</b>.</p>
+          <p><b>שם החניכ.ה:</b> ${escHtml(studentName)}<br/>
+             <b>קבוצה:</b> ${escHtml(groupVal)}</p>
+          <p>מצורף קובץ ה-PDF הרשמי.</p>
+        </div>
+      `;
+      const textBody = `התקבלה הגשה חדשה לטופס "${title}".\nשם החניכ.ה: ${studentName}\nקבוצה: ${groupVal}\nמצורף PDF.`;
 
-      const createRes = await drive.files.create({
-        requestBody: {
-          name: fileName,
-          parents: [formFolderId],
-          mimeType: "application/pdf",
-        },
-        media: {
-          mimeType: "application/pdf",
-          body: Readable.from([pdfBuffer]), // ← חשוב: Stream, לא Buffer
-        },
-        fields: "id, webViewLink, webContentLink",
-        supportsAllDrives: true,
-      });
-
-      // קאונטר (לא שומרים קבצים אונליין אצלנו)
-      await db.doc(`forms/${formId}`).update({
-        submissionCount: admin.firestore.FieldValue.increment(1),
-      });
-
-      return {
-        driveFileId: createRes.data.id,
-        webViewLink: createRes.data.webViewLink,
-        webContentLink: createRes.data.webContentLink,
+      const mailOptions: Mail.Options = {
+        from: SMTP_FROM || SMTP_USER,
+        to: recipients.join(","),
+        subject,
+        text: textBody,
+        html: htmlBody,
+        attachments: [
+          {
+            filename: fileName,
+            content: pdfBuffer,
+            contentType: "application/pdf",
+          },
+        ],
       };
+
+      const info: SMTPTransport.SentMessageInfo = await transporter.sendMail(mailOptions);
+      console.log("[email] sent", { to: recipients, messageId: info.messageId });
+
+      // קאונטר
+      const resolvedFormId = formId || formSnap.ref.id; // ליתר ביטחון יש לנו מזהה תקף
+await db.doc(`forms/${resolvedFormId}`).update({
+  submissionCount: FieldValue.increment(1),
+});
+
+      return { ok: true, sentTo: recipients, messageId: info.messageId };
     } catch (err: any) {
-      fail("internal", err?.message || "Drive submission failed", {
+      fail("internal", err?.message || "Email submission failed", {
         name: err?.name,
         stack: (err?.stack || "").split("\n").slice(0, 6).join("\n"),
-      });
-    } finally {
-      if (browser) await browser.close().catch(() => {});
-    }
-  });
-
-/* =========================================================================
-   (2) LEGACY: makePdf — יצירת PDF ושמירה ל-Storage (לשימושי פיתוח)
-   ========================================================================= */
-
-export const makePdf = functions
-  .runWith({ memory: "1GB", timeoutSeconds: 120 })
-  .https.onCall(async (data) => {
-    const formId: string = data?.formId;
-    const submissionId: string = data?.submissionId;
-    if (!formId || !submissionId) fail("invalid-argument", "formId & submissionId are required");
-
-    console.log("[makePdf start]", { formId, submissionId, bucket: DEFAULT_BUCKET, ASSETS_DIR });
-
-    // נכסים
-    const missing: string[] = [];
-    if (!fs.existsSync(TEMPLATE_PATH)) missing.push(TEMPLATE_PATH);
-    if (!fs.existsSync(CSS_PATH)) missing.push(CSS_PATH);
-    if (!fs.existsSync(FONT_PATH)) missing.push(FONT_PATH);
-    if (missing.length) fail("failed-precondition", "Missing asset files", { missing });
-
-    // נתונים
-    const db = admin.firestore();
-    const [formSnap, subSnap] = await Promise.all([
-      db.doc(`forms/${formId}`).get(),
-      db.doc(`forms/${formId}/submissions/${submissionId}`).get(),
-    ]);
-    if (!formSnap.exists || !subSnap.exists) {
-      fail("not-found", "form or submission not found", {
-        formExists: formSnap.exists,
-        subExists: subSnap.exists,
-      });
-    }
-    const form = formSnap.data();
-    const submission = subSnap.data() as any;
-
-    // קרא נכסים
-    const templateHtml = fs.readFileSync(TEMPLATE_PATH, "utf8");
-    const css = fs.readFileSync(CSS_PATH, "utf8");
-    const fontBase64 = fs.readFileSync(FONT_PATH).toString("base64");
-    const fontDataUrl = `data:font/ttf;base64,${fontBase64}`;
-
-    // HTML
-    const schema: Field[] = (form?.schema || []) as Field[];
-    const answers: Record<string, any> = submission?.answers || {};
-    const rows = schema
-      .filter((f) => f.type !== "signature")
-      .map((f) => {
-        let v = answers[f.id];
-        if (v == null) v = "";
-        if (Array.isArray(v)) v = v.join(", ");
-        if (f.type === "richtext") v = stripHtml(String(v));
-        return `<div class="row"><div class="label">${f.label}</div><div class="value">${String(v)}</div></div>`;
-      })
-      .join("\n");
-
-    const sigImg = submission?.signatureUrl
-      ? `<div class="signature"><div class="sig-label">חתימה:</div><img src="${submission.signatureUrl}" alt="signature"/></div>`
-      : "";
-
-    const style = `
-      <style>
-        @font-face {
-          font-family: 'NotoHeb';
-          src: url('${fontDataUrl}') format('truetype');
-          font-weight: 400;
-          font-style: normal;
-          font-display: swap;
-        }
-        ${css}
-      </style>`;
-
-    const titleText = String(form?.title || "טופס");
-    const html = templateHtml
-      .replace(/<!--STYLE-->/, style)
-      .replace(/{{\s*title\s*}}/gi, titleText)
-      .replace(/{{\s*rows\s*}}/gi, rows)
-      .replace(/{{\s*signature\s*}}/gi, sigImg);
-
-    // PDF
-    let browser: Browser | null = null;
-    try {
-      const execPath = puppeteer.executablePath();
-      console.log("[makePdf] launching Chromium", { execPath });
-
-      browser = await puppeteer.launch({
-        executablePath: execPath,
-        args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
-      });
-      const page = await browser.newPage();
-      await page.setContent(html, { waitUntil: "networkidle0" });
-      const pdfBuffer = await page.pdf({
-        format: "A4",
-        printBackground: true,
-        margin: { top: "20mm", bottom: "20mm", left: "15mm", right: "15mm" },
-        preferCSSPageSize: true,
-      });
-
-      // Storage (legacy)
-      const bucket = admin.storage().bucket();
-      const objectPath = `pdf/${formId}/${submissionId}.pdf`;
-      const fileName = `${safeFileName(form?.title || "טופס")}-${submissionId}.pdf`;
-
-      console.log("[makePdf] saving to bucket", { bucket: bucket.name, objectPath, fileName });
-
-      await bucket.file(objectPath).save(pdfBuffer, {
-        contentType: "application/pdf",
-        metadata: {
-          contentDisposition: `attachment; filename="${fileName}"`,
-        },
-      });
-
-      const pdfUrl = isStorageEmulator()
-        ? emulatorDownloadUrl(bucket.name, objectPath)
-        : (
-            await bucket
-              .file(objectPath)
-              .getSignedUrl({ action: "read", expires: Date.now() + 1000 * 60 * 60 * 24 * 365 })
-          )[0];
-
-      await db.doc(`forms/${formId}/submissions/${submissionId}`).update({ pdfUrl });
-      console.log("[makePdf] done", { pdfUrl, fileName });
-
-      return { pdfUrl, fileName };
-    } catch (err: any) {
-      fail("internal", err?.message || "PDF generation failed", {
-        name: err?.name,
-        stack: (err?.stack || "").split("\n").slice(0, 5).join("\n"),
       });
     } finally {
       if (browser) await browser.close().catch(() => {});

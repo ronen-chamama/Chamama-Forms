@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { db, functions } from "@/lib/firebaseClient";
-import { doc, getDoc } from "firebase/firestore";
+import {
+  doc, getDoc, collection, getDocs, query as fsQuery, where, limit,
+} from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { GROUPS } from "@/components/constants";
 import SignaturePad from "@/components/SignaturePad";
@@ -27,15 +29,18 @@ type FormDoc = {
   title?: string;
   descriptionHtml?: string;
   schema?: Field[];
+  notifyEmails?: string[];
+  publicId?: string;
 };
 
 export default function ParentFormPage() {
-  const { id: formId } = useParams<{ id: string }>();
+  const { id: incomingId } = useParams<{ id: string }>();
   const router = useRouter();
 
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState<FormDoc | null>(null);
   const [schema, setSchema] = useState<Field[]>([]);
+  const [resolvedFormId, setResolvedFormId] = useState<string>(incomingId); // נטען/נעדכן אחרי פולבאק
   const [msg, setMsg] = useState<string>("");
 
   // תשובות — כולל שני השדות הקבועים מראש
@@ -46,20 +51,45 @@ export default function ParentFormPage() {
   const [signatureDataUrl, setSignatureDataUrl] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
 
-  // טען טופס
+  // טען טופס (מנסה קודם לפי מזהה מסמך; אם לא נמצא – מחפש לפי publicId)
   useEffect(() => {
     (async () => {
       setLoading(true);
       try {
-        const snap = await getDoc(doc(db, "forms", formId));
+        // ניסיון ישיר כמסמך
+        let snap = await getDoc(doc(db, "forms", incomingId));
+        let formIdToUse = incomingId;
+
+        if (!snap.exists()) {
+          // חיפוש לפי publicId
+          const qs = await getDocs(
+            fsQuery(
+              collection(db, "forms"),
+              where("publicId", "==", incomingId),
+              limit(1)
+            )
+          );
+          if (!qs.empty) {
+            snap = qs.docs[0];
+            formIdToUse = snap.id;
+          }
+        }
+
+        if (!snap.exists()) {
+          setForm(null);
+          setSchema([]);
+          return;
+        }
+
         const data = (snap.data() || {}) as FormDoc;
         setForm(data);
         setSchema((data.schema || []) as Field[]);
+        setResolvedFormId(formIdToUse);
       } finally {
         setLoading(false);
       }
     })();
-  }, [formId]);
+  }, [incomingId]);
 
   // מזהים לשדות מיוחדים (לטלפון/מייל) לטובת ולידציה
   const phoneFieldId = useMemo(
@@ -68,6 +98,12 @@ export default function ParentFormPage() {
   );
   const emailFieldId = useMemo(
     () => schema.find((f) => f.type === "email")?.id,
+    [schema]
+  );
+
+  // האם יש שדה חתימה חובה בסכימה
+  const signatureRequired = useMemo(
+    () => schema.some((f) => f.type === "signature" && f.required),
     [schema]
   );
 
@@ -105,19 +141,25 @@ export default function ParentFormPage() {
       const v = answers[f.id];
       if (f.type === "checkbox") return !Array.isArray(v) || v.length === 0;
       if (f.type === "consent") return v !== true;
+      if (f.type === "signature") return false; // נטפל בזה בנפרד
       return v == null || String(v).trim() === "";
     });
     if (missingRequired) return setMsg("יש למלא את כל השדות המסומנים כחובה");
+
+    if (signatureRequired && !signatureDataUrl) {
+      return setMsg("נדרשת חתימה");
+    }
 
     try {
       setSending(true);
       const fn = httpsCallable(functions, "submitFormToDrive");
       await fn({
-        formId,
+        formId: resolvedFormId,        // תומך בגרסת הפונקציה הקיימת
+        publicId: incomingId,          // ואם עדכנת לפולבאק בצד השרת — אז גם זה קיים
         answers,
         signatureDataUrl: signatureDataUrl || null,
       });
-      router.replace(`/f/${formId}/thanks`);
+      router.replace(`/f/${incomingId}/thanks`);
     } catch (err: any) {
       console.error(err);
       setMsg(err?.message || err?.code || "אירעה שגיאה בשליחה");
@@ -140,7 +182,7 @@ export default function ParentFormPage() {
       {form.descriptionHtml && (
         <div
           className="prose prose-sm max-w-none mb-6"
-          // הערה: נזהרים עם HTML שהוכנס ע"י המורה. אם תרצה סינון — נוסיף מאוחר יותר.
+          // אם תרצה סינון ל-HTML שמודבק מוורד, נוסיף בהמשך sanitizer
           dangerouslySetInnerHTML={{ __html: form.descriptionHtml }}
         />
       )}
@@ -310,7 +352,7 @@ export default function ParentFormPage() {
             )}
 
             {f.type === "signature" && (
-              <SignaturePad onSave={(dataUrl) => setSignatureDataUrl(dataUrl)} />
+              <SignaturePad onChange={(dataUrl) => setSignatureDataUrl(dataUrl)} />
             )}
           </div>
         ))}

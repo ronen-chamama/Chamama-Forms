@@ -1,74 +1,114 @@
 "use client";
+
 import { useEffect, useRef } from "react";
 import "quill/dist/quill.snow.css";
 
-type Props = { value: string; onChange: (html: string) => void; placeholder?: string };
 
-export default function RichTextEditor({ value, onChange, placeholder = "תיאור הטופס…" }: Props) {
-  const containerRef = useRef<HTMLDivElement | null>(null);
+type Props = {
+  value: string;
+  onChange: (html: string) => void;
+  placeholder?: string;
+};
+
+export default function RichTextEditor({ value, onChange, placeholder }: Props) {
+  const hostRef = useRef<HTMLDivElement | null>(null);
   const quillRef = useRef<any>(null);
-  const initializedRef = useRef(false);
-  const lastHtmlRef = useRef<string>("");
 
+  // אתחול Quill חד-פעמי (רק בצד לקוח)
   useEffect(() => {
-    let disposed = false;
+    let mounted = true;
+
     (async () => {
-      if (initializedRef.current || !containerRef.current) return;
-      initializedRef.current = true;
-
-      const Quill = (await import("quill")).default;
-
-      // נוודא שהקונטיינר ריק לפני יצירה
-      containerRef.current.innerHTML = "";
-      const editorHost = document.createElement("div");
-      containerRef.current.appendChild(editorHost);
+      // תמיכה גם אם המודול מחזיר default וגם אם לא
+      const mod: any = await import("quill");
+      const Quill = mod?.default ?? mod;
+      if (!mounted || !hostRef.current || quillRef.current) return;
 
       const modules = {
         toolbar: [
-          [{ header: [1, 2, false] }],
+          [{ header: [1, 2, 3, false] }],
           ["bold", "italic", "underline", "strike"],
           [{ list: "ordered" }, { list: "bullet" }],
           [{ align: [] }, { direction: "rtl" }],
-          ["link", "clean"],
+          ["link"],
+          ["clean"],
         ],
-        clipboard: { matchVisual: true },
+        clipboard: { matchVisual: false },
       };
-      const formats = ["header","bold","italic","underline","strike","list","bullet","align","direction","link"];
 
-      const q = new Quill(editorHost, { theme: "snow", modules, formats, placeholder });
+      const formats = [
+        "header",
+        "bold",
+        "italic",
+        "underline",
+        "strike",
+        "list",
+        "bullet",
+        "align",
+        "direction",
+        "link",
+      ];
+
+      const q = new Quill(hostRef.current, {
+        theme: "snow",
+        modules,
+        formats,
+        placeholder,
+      });
+
       quillRef.current = q;
-      q.root.setAttribute("dir", "rtl");
 
+      // RTL + עברית
+      q.root.setAttribute("dir", "rtl");
+      q.root.setAttribute("lang", "he");
+
+      // ערך התחלתי
       if (value) {
         q.clipboard.dangerouslyPasteHTML(value);
-        lastHtmlRef.current = q.root.innerHTML;
       }
 
-      q.on("text-change", () => {
-        if (disposed) return;
-        const html = q.root.innerHTML;
-        if (html !== lastHtmlRef.current) {
-          lastHtmlRef.current = html;
-          onChange(html);
-        }
-      });
+      // שינויי טקסט → onChange
+      const handler = () => onChange(q.root.innerHTML);
+      q.on("text-change", handler);
+
+      // ניקוי מאזינים ביציאה
+      return () => {
+        try { q.off("text-change", handler); } catch {}
+      };
     })();
 
     return () => {
-      disposed = true;
+      mounted = false;
+      quillRef.current = null;
     };
-  }, []); // אתחול פעם אחת
+  }, []); // לאתחל פעם אחת
 
-  // סנכרון חיצוני
+  // סינכרון ערך חיצוני → עורך, בלי למחוק בחירה
   useEffect(() => {
     const q = quillRef.current;
-    if (!q) return;
-    if (value && value !== lastHtmlRef.current) {
-      q.setContents([]);
-      q.clipboard.dangerouslyPasteHTML(value);
-      lastHtmlRef.current = q.root.innerHTML;
-    }
+    if (!q || typeof value !== "string") return;
+
+    const current = q.root.innerHTML;
+    if (current === value) return;
+
+    const sel = q.getSelection();
+    q.clipboard.dangerouslyPasteHTML(value || "");
+    if (sel) q.setSelection(sel);
   }, [value]);
 
-  return <div ref={containerRef} className="bg-white rounded" />;
+  // עטיפה כדי לבודד את ה-CSS של Quill
+  return (
+    <div className="quill-wrap border rounded bg-white">
+      <div ref={hostRef} />
+      <style jsx>{`
+        .quill-wrap :global(.ql-container) {
+          min-height: 160px;
+          border-top: 0;
+        }
+        .quill-wrap :global(.ql-toolbar) {
+          border-bottom: 1px solid #e5e7eb; /* tailwind slate-200 */
+        }
+      `}</style>
+    </div>
+  );
 }

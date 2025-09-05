@@ -2,24 +2,25 @@
 import React, { useRef } from "react";
 import SignatureCanvas from "react-signature-canvas";
 
-export default function SignaturePad({ onChange }: { onChange: (dataUrl: string)=>void }) {
+export default function SignaturePad({
+  onChange,
+  width = 500,
+  height = 180,
+}: {
+  onChange: (dataUrl: string | null) => void;
+  width?: number;
+  height?: number;
+}) {
   const ref = useRef<SignatureCanvas>(null);
 
   function handleEnd() {
-    try {
-      const data = ref.current?.toDataURL("image/png");
-      if (data && typeof onChange === "function") onChange(data);
-    } catch (e) {
-      console.error("Signature toDataURL failed:", e);
-    }
+    const data = ref.current?.toDataURL("image/png"); // חייב להחזיר data:image/png;base64,....
+    onChange(data || null);
   }
 
   function clear() {
-    try {
-      ref.current?.clear();
-    } finally {
-      if (typeof onChange === "function") onChange("");
-    }
+    ref.current?.clear();
+    onChange(null);
   }
 
   return (
@@ -28,11 +29,11 @@ export default function SignaturePad({ onChange }: { onChange: (dataUrl: string)
         ref={ref}
         penColor="black"
         onEnd={handleEnd}
-        canvasProps={{ width: 500, height: 180, className: "border rounded" }}
+        canvasProps={{ width, height, className: "border rounded bg-white" }}
       />
-      <div className="flex gap-2">
-        <button type="button" onClick={clear} className="border p-2">נקה</button>
-      </div>
+      <button type="button" onClick={clear} className="border px-3 py-1 rounded">
+        נקה חתימה
+      </button>
     </div>
   );
 }
