@@ -2,45 +2,46 @@
 import { useEffect, useState } from "react";
 import { auth, db } from "@/lib/firebaseClient";
 import { onAuthStateChanged } from "firebase/auth";
-import { collection, getDocs, query, where } from "firebase/firestore";
+import { collection, query, where, getDocs, addDoc, serverTimestamp } from "firebase/firestore";
 
 export default function AppHome() {
-  const [uid, setUid] = useState<string>("");
-  const [forms, setForms] = useState<any[]>([]);
+  const [uid,setUid]=useState<string>(""); const [forms,setForms]=useState<any[]>([]);
+  useEffect(()=>{ const u=onAuthStateChanged(auth,(x)=>{ if(!x) location.href="/login"; else setUid(x.uid); }); return ()=>u();},[]);
+  useEffect(()=>{ if(!uid) return; (async()=>{
+    const q=query(collection(db,"forms"), where("ownerUid","==",uid));
+    const snap=await getDocs(q); setForms(snap.docs.map(d=>({id:d.id,...d.data()})));
+  })(); },[uid]);
 
-  useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (u) => {
-      if (!u) location.href = "/login";
-      else setUid(u.uid);
+  function copyLink(id: string) {
+  const url = `${location.origin}/f/${id}`;
+  navigator.clipboard.writeText(url).then(() => alert("קישור הועתק"));
+}
+  async function createNew(){
+    const docRef=await addDoc(collection(db,"forms"),{
+      ownerUid: uid, title: "טופס חדש", targetGroups: [], notifyStaffEmails: [],
+      schema: [], createdAt: serverTimestamp(), updatedAt: serverTimestamp()
     });
-    return () => unsub();
-  }, []);
-
-  useEffect(() => {
-    if (!uid) return;
-    (async () => {
-      const qy = query(collection(db, "forms"), where("ownerUid", "==", uid));
-      const snap = await getDocs(qy);
-      setForms(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-    })();
-  }, [uid]);
+    location.href=`/app/forms/${docRef.id}/edit`;
+  }
 
   return (
     <main dir="rtl" className="p-6 max-w-3xl mx-auto">
       <h1 className="text-2xl mb-4">הטפסים שלי</h1>
-      <a className="border p-2 inline-block mb-4" href="/app/forms/new">+ טופס חדש</a>
+      <button className="border p-2 mb-4" onClick={createNew}>+ טופס חדש</button>
       <ul className="space-y-2">
-        {forms.map((f) => (
+        {forms.map(f=>(
           <li key={f.id} className="border p-2 rounded flex justify-between">
-            <div>{f.title || "ללא כותרת"}</div>
-            <div className="space-x-2 space-x-reverse">
-              <a className="underline" href={`/app/forms/${f.id}/edit`}>עריכה</a>
-              <a className="underline" href={`/app/forms/${f.id}/submissions`}>הגשות</a>
-              <a className="underline" href={`/f/${f.id}`}>קישור להורה</a>
-            </div>
+            <div>{f.title}</div>
+            <div className="flex items-center gap-3">
+  <a className="underline" href={`/app/forms/${f.id}/edit`}>עריכה</a>
+  {/* הסר/י קישור להגשות */}
+  <button type="button" className="underline" onClick={() => copyLink(f.id)}>
+    העתק קישור להורה
+  </button>
+  <span className="text-xs text-gray-500">נשלחו: {f.submissionCount || 0}</span>
+</div>
           </li>
         ))}
-        {forms.length === 0 && <li className="text-sm text-gray-500">אין טפסים עדיין.</li>}
       </ul>
     </main>
   );

@@ -148,8 +148,27 @@ async function makePdfFor(submissionId: string) {
     setMaking(submissionId);
     const fn = httpsCallable(functions, "makePdf");
     const res: any = await fn({ formId, submissionId });
-    // אפשר לעדכן את השורה בטבלה אם תרצה למשוך שוב או פשוט לתת רענון קל:
-    // location.reload();
+    const nextUrl: string = res?.data?.pdfUrl || "";
+const fileName: string = res?.data?.fileName || `submission-${submissionId}.pdf`;
+
+// עדכון השורה בטבלה
+setItems(prev =>
+  prev.map(it => (it.id === submissionId ? { ...it, pdfUrl: nextUrl } : it))
+);
+
+// נסה להוריד מיד (עדיף כשהקריאה מגיעה מלחיצה של המשתמש)
+if (nextUrl) {
+  const a = document.createElement("a");
+  a.href = nextUrl;
+  a.download = fileName;                  // יעבוד ברוב הדפדפנים; השם יילקח מה-Content-Disposition אם הדפדפן מתעלם
+  a.rel = "noopener noreferrer";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+} else {
+  console.warn("makePdf returned no pdfUrl", res);
+}
+
   } catch (e:any) {
     alert("שגיאה ביצירת PDF: " + (e?.message || e));
   } finally {
