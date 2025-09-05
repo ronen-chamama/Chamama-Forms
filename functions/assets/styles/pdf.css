@@ -1,6 +1,6 @@
 * { box-sizing: border-box; }
 html, body { margin:0; padding:0; }
-body { font-family: 'NotoHeb', Arial, sans-serif; color:#111; }
+body { font-family: 'NotoHeb', Arial, sans-serif; color:#111; direction: rtl; }
 
 .header, .footer { display:flex; justify-content:space-between; align-items:center; }
 .header { border-bottom:2px solid #222; padding:8px 0 12px; margin-bottom:16px; }

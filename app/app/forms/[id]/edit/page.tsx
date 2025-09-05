@@ -3,6 +3,8 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { db } from "@/lib/firebaseClient";
 import { doc, getDoc, updateDoc, serverTimestamp, arrayUnion } from "firebase/firestore";
+import { useRouter } from "next/navigation";
+
 
 type Field = { id:string; type:string; label:string; options?:string[]; required?:boolean; };
 
@@ -13,6 +15,9 @@ export default function EditFormPage(){
   const [groups,setGroups]=useState<string>("");
   const [emails,setEmails]=useState<string>("");
   const [schema,setSchema]=useState<Field[]>([]);
+  const router = useRouter();
+  const [saving, setSaving] = useState(false);
+
 
   useEffect(()=>{ (async()=>{
     const snap=await getDoc(doc(db,"forms",id)); const d=snap.data() as any;
@@ -20,7 +25,9 @@ export default function EditFormPage(){
     setSchema(d?.schema||[]); setLoading(false);
   })(); },[id]);
 
-  async function save(){
+  async function save() {
+  try {
+    setSaving(true);
     await updateDoc(doc(db,"forms",id),{
       title,
       targetGroups: groups.split(",").map(s=>s.trim()).filter(Boolean),
@@ -28,8 +35,15 @@ export default function EditFormPage(){
       schema,
       updatedAt: serverTimestamp()
     });
-    alert("נשמר");
+    // מעבר חזרה לרשימת הטפסים
+    router.replace("/app");
+  } catch (e:any) {
+    alert("שגיאה בשמירה: " + (e?.message || e));
+  } finally {
+    setSaving(false);
   }
+}
+
 
   function addField(type:string){
     const base: Field = { id: crypto.randomUUID(), type, label: "שדה חדש", required:false };

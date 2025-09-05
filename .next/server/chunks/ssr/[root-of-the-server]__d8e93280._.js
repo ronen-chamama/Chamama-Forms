@@ -124,6 +124,8 @@ __turbopack_context__.s([
     ()=>auth,
     "db",
     ()=>db,
+    "functions",
+    ()=>functions,
     "storage",
     ()=>storage
 ]);
@@ -135,6 +137,9 @@ var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$firebase$2f$
 var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f40$firebase$2f$firestore$2f$dist$2f$index$2e$node$2e$mjs__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/node_modules/@firebase/firestore/dist/index.node.mjs [app-ssr] (ecmascript)");
 var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$firebase$2f$storage$2f$dist$2f$index$2e$mjs__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__$3c$locals$3e$__ = __turbopack_context__.i("[project]/node_modules/firebase/storage/dist/index.mjs [app-ssr] (ecmascript) <locals>");
 var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f40$firebase$2f$storage$2f$dist$2f$node$2d$esm$2f$index$2e$node$2e$esm$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/node_modules/@firebase/storage/dist/node-esm/index.node.esm.js [app-ssr] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$firebase$2f$functions$2f$dist$2f$index$2e$mjs__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__$3c$locals$3e$__ = __turbopack_context__.i("[project]/node_modules/firebase/functions/dist/index.mjs [app-ssr] (ecmascript) <locals>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f40$firebase$2f$functions$2f$dist$2f$esm$2f$index$2e$esm$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/node_modules/@firebase/functions/dist/esm/index.esm.js [app-ssr] (ecmascript)");
+;
 ;
 ;
 ;
@@ -167,6 +172,7 @@ try {
 const auth = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f40$firebase$2f$auth$2f$dist$2f$node$2d$esm$2f$index$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["getAuth"])(app);
 const db = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f40$firebase$2f$firestore$2f$dist$2f$index$2e$node$2e$mjs__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["getFirestore"])(app);
 const storage = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f40$firebase$2f$storage$2f$dist$2f$node$2d$esm$2f$index$2e$node$2e$esm$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["getStorage"])(app);
+const functions = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f40$firebase$2f$functions$2f$dist$2f$esm$2f$index$2e$esm$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["getFunctions"])(app);
 // חיבור לאמולטורים בלוקאל
 if ("TURBOPACK compile-time falsy", 0) //TURBOPACK unreachable
 ;
@@ -184,9 +190,13 @@ var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$navi
 var __TURBOPACK__imported__module__$5b$project$5d2f$lib$2f$firebaseClient$2e$ts__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/lib/firebaseClient.ts [app-ssr] (ecmascript)");
 var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$firebase$2f$auth$2f$dist$2f$index$2e$mjs__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__$3c$locals$3e$__ = __turbopack_context__.i("[project]/node_modules/firebase/auth/dist/index.mjs [app-ssr] (ecmascript) <locals>");
 var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f40$firebase$2f$auth$2f$dist$2f$node$2d$esm$2f$index$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/node_modules/@firebase/auth/dist/node-esm/index.js [app-ssr] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$firebase$2f$functions$2f$dist$2f$index$2e$mjs__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__$3c$locals$3e$__ = __turbopack_context__.i("[project]/node_modules/firebase/functions/dist/index.mjs [app-ssr] (ecmascript) <locals>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f40$firebase$2f$functions$2f$dist$2f$esm$2f$index$2e$esm$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/node_modules/@firebase/functions/dist/esm/index.esm.js [app-ssr] (ecmascript)");
 var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$firebase$2f$firestore$2f$dist$2f$index$2e$mjs__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__$3c$locals$3e$__ = __turbopack_context__.i("[project]/node_modules/firebase/firestore/dist/index.mjs [app-ssr] (ecmascript) <locals>");
 var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f40$firebase$2f$firestore$2f$dist$2f$index$2e$node$2e$mjs__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/node_modules/@firebase/firestore/dist/index.node.mjs [app-ssr] (ecmascript)");
 "use client";
+;
+;
 ;
 ;
 ;
@@ -300,6 +310,23 @@ function SubmissionsPage() {
         filter,
         fieldById
     ]);
+    const [making, setMaking] = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["useState"])(null);
+    async function makePdfFor(submissionId) {
+        try {
+            setMaking(submissionId);
+            const fn = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f40$firebase$2f$functions$2f$dist$2f$esm$2f$index$2e$esm$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["httpsCallable"])(__TURBOPACK__imported__module__$5b$project$5d2f$lib$2f$firebaseClient$2e$ts__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["functions"], "makePdf");
+            const res = await fn({
+                formId,
+                submissionId
+            });
+        // אפשר לעדכן את השורה בטבלה אם תרצה למשוך שוב או פשוט לתת רענון קל:
+        // location.reload();
+        } catch (e) {
+            alert("שגיאה ביצירת PDF: " + (e?.message || e));
+        } finally{
+            setMaking(null);
+        }
+    }
     // ייצוא CSV: מייצר עמודות לפי ה-schema (Labels) כדי לקבל "שם השדה: הערך"
     function exportCSV() {
         // עמודות קבועות
@@ -363,7 +390,7 @@ function SubmissionsPage() {
                         children: "הגשות לטופס"
                     }, void 0, false, {
                         fileName: "[project]/app/app/forms/[id]/submissions/page.tsx",
-                        lineNumber: 193,
+                        lineNumber: 211,
                         columnNumber: 9
                     }, this),
                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -376,7 +403,7 @@ function SubmissionsPage() {
                                 onChange: (e)=>setFilter(e.target.value)
                             }, void 0, false, {
                                 fileName: "[project]/app/app/forms/[id]/submissions/page.tsx",
-                                lineNumber: 195,
+                                lineNumber: 213,
                                 columnNumber: 11
                             }, this),
                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
@@ -385,7 +412,7 @@ function SubmissionsPage() {
                                 children: "ייצוא CSV"
                             }, void 0, false, {
                                 fileName: "[project]/app/app/forms/[id]/submissions/page.tsx",
-                                lineNumber: 201,
+                                lineNumber: 219,
                                 columnNumber: 11
                             }, this),
                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("a", {
@@ -394,32 +421,32 @@ function SubmissionsPage() {
                                 children: "חזרה לעריכה"
                             }, void 0, false, {
                                 fileName: "[project]/app/app/forms/[id]/submissions/page.tsx",
-                                lineNumber: 204,
+                                lineNumber: 222,
                                 columnNumber: 11
                             }, this)
                         ]
                     }, void 0, true, {
                         fileName: "[project]/app/app/forms/[id]/submissions/page.tsx",
-                        lineNumber: 194,
+                        lineNumber: 212,
                         columnNumber: 9
                     }, this)
                 ]
             }, void 0, true, {
                 fileName: "[project]/app/app/forms/[id]/submissions/page.tsx",
-                lineNumber: 192,
+                lineNumber: 210,
                 columnNumber: 7
             }, this),
             loading ? /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
                 children: "טוען…"
             }, void 0, false, {
                 fileName: "[project]/app/app/forms/[id]/submissions/page.tsx",
-                lineNumber: 211,
+                lineNumber: 229,
                 columnNumber: 9
             }, this) : filtered.length === 0 ? /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
                 children: "אין הגשות עדיין."
             }, void 0, false, {
                 fileName: "[project]/app/app/forms/[id]/submissions/page.tsx",
-                lineNumber: 213,
+                lineNumber: 231,
                 columnNumber: 9
             }, this) : /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
                 className: "space-y-3",
@@ -442,7 +469,7 @@ function SubmissionsPage() {
                                         ]
                                     }, void 0, true, {
                                         fileName: "[project]/app/app/forms/[id]/submissions/page.tsx",
-                                        lineNumber: 222,
+                                        lineNumber: 240,
                                         columnNumber: 19
                                     }, this),
                                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -455,14 +482,14 @@ function SubmissionsPage() {
                                                 children: "חתימה"
                                             }, void 0, false, {
                                                 fileName: "[project]/app/app/forms/[id]/submissions/page.tsx",
-                                                lineNumber: 227,
+                                                lineNumber: 245,
                                                 columnNumber: 23
                                             }, this) : /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
                                                 className: "text-gray-400",
                                                 children: "אין חתימה"
                                             }, void 0, false, {
                                                 fileName: "[project]/app/app/forms/[id]/submissions/page.tsx",
-                                                lineNumber: 231,
+                                                lineNumber: 249,
                                                 columnNumber: 23
                                             }, this),
                                             s.pdfUrl ? /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("a", {
@@ -472,26 +499,29 @@ function SubmissionsPage() {
                                                 children: "PDF"
                                             }, void 0, false, {
                                                 fileName: "[project]/app/app/forms/[id]/submissions/page.tsx",
-                                                lineNumber: 234,
-                                                columnNumber: 23
-                                            }, this) : /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
-                                                className: "text-gray-400",
-                                                children: "אין PDF"
+                                                lineNumber: 252,
+                                                columnNumber: 3
+                                            }, this) : /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
+                                                onClick: ()=>makePdfFor(s.id),
+                                                className: "border px-2 py-1 rounded",
+                                                disabled: making === s.id,
+                                                title: "הפק מסמך PDF רשמי",
+                                                children: making === s.id ? "יוצר…" : "הפק PDF"
                                             }, void 0, false, {
                                                 fileName: "[project]/app/app/forms/[id]/submissions/page.tsx",
-                                                lineNumber: 238,
-                                                columnNumber: 23
+                                                lineNumber: 254,
+                                                columnNumber: 3
                                             }, this)
                                         ]
                                     }, void 0, true, {
                                         fileName: "[project]/app/app/forms/[id]/submissions/page.tsx",
-                                        lineNumber: 225,
+                                        lineNumber: 243,
                                         columnNumber: 19
                                     }, this)
                                 ]
                             }, void 0, true, {
                                 fileName: "[project]/app/app/forms/[id]/submissions/page.tsx",
-                                lineNumber: 221,
+                                lineNumber: 239,
                                 columnNumber: 17
                             }, this),
                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -509,7 +539,7 @@ function SubmissionsPage() {
                                                 children: f.label
                                             }, void 0, false, {
                                                 fileName: "[project]/app/app/forms/[id]/submissions/page.tsx",
-                                                lineNumber: 251,
+                                                lineNumber: 274,
                                                 columnNumber: 25
                                             }, this),
                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -519,42 +549,42 @@ function SubmissionsPage() {
                                                     children: "—"
                                                 }, void 0, false, {
                                                     fileName: "[project]/app/app/forms/[id]/submissions/page.tsx",
-                                                    lineNumber: 252,
+                                                    lineNumber: 275,
                                                     columnNumber: 69
                                                 }, this)
                                             }, void 0, false, {
                                                 fileName: "[project]/app/app/forms/[id]/submissions/page.tsx",
-                                                lineNumber: 252,
+                                                lineNumber: 275,
                                                 columnNumber: 25
                                             }, this)
                                         ]
                                     }, f.id, true, {
                                         fileName: "[project]/app/app/forms/[id]/submissions/page.tsx",
-                                        lineNumber: 250,
+                                        lineNumber: 273,
                                         columnNumber: 23
                                     }, this);
                                 })
                             }, void 0, false, {
                                 fileName: "[project]/app/app/forms/[id]/submissions/page.tsx",
-                                lineNumber: 243,
+                                lineNumber: 266,
                                 columnNumber: 17
                             }, this)
                         ]
                     }, s.id, true, {
                         fileName: "[project]/app/app/forms/[id]/submissions/page.tsx",
-                        lineNumber: 220,
+                        lineNumber: 238,
                         columnNumber: 15
                     }, this);
                 })
             }, void 0, false, {
                 fileName: "[project]/app/app/forms/[id]/submissions/page.tsx",
-                lineNumber: 215,
+                lineNumber: 233,
                 columnNumber: 9
             }, this)
         ]
     }, void 0, true, {
         fileName: "[project]/app/app/forms/[id]/submissions/page.tsx",
-        lineNumber: 191,
+        lineNumber: 209,
         columnNumber: 5
     }, this);
 }
