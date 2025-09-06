@@ -4,27 +4,9 @@ import * as fs from "fs";
 import * as path from "path";
 import puppeteer, { Browser } from "puppeteer";
 import nodemailer from "nodemailer";
-import type Mail from "nodemailer/lib/mailer";
-import SMTPTransport from "nodemailer/lib/smtp-transport";
-import { getFirestore, FieldValue } from "firebase-admin/firestore";
+import { FieldValue } from "firebase-admin/firestore";
 
-
-/**
- * Required ENV (local + prod):
- *  - SMTP_HOST
- *  - SMTP_PORT                 (465 for SSL, 587 for STARTTLS)
- *  - SMTP_SECURE               ("true" for 465, else "false")
- *  - SMTP_USER
- *  - SMTP_PASS                 (use functions:secrets:set in prod)
- *  - SMTP_FROM                 (optional, fallback: SMTP_USER)
- *  - DEFAULT_NOTIFY_EMAILS     (optional, comma-separated fallback list)
- *
- * Client payload (callable):
- *  - formId: string
- *  - answers: Record<string, any>   (must include: studentName, group)
- *  - signatureDataUrl: string|null  (data:image/png;base64,...)
- */
-
+// ---------- Types ----------
 type Field = {
   id: string;
   type: "richtext" | "text" | "phone" | "email" | "select" | "radio" | "checkbox" | "signature";
@@ -33,17 +15,17 @@ type Field = {
   required?: boolean;
 };
 
+// ---------- Firebase init ----------
 admin.initializeApp();
 
-/** ---------- helpers ---------- */
+// ---------- Helpers ----------
 function stripHtml(html: string) {
-  return String(html).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+  return html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
 }
 function fail(code: functions.https.FunctionsErrorCode, message: string, details?: any): never {
   console.error("[func error]", message, details || "");
   throw new functions.https.HttpsError(code, message, details);
 }
-/** שמירת תווי עברית/אנגלית; מנקה תווים אסורים לשם קובץ */
 function safeFileName(s: string) {
   return (s || "")
     .toString()
@@ -53,81 +35,79 @@ function safeFileName(s: string) {
     .trim()
     .replace(/\s+/g, " ");
 }
-function escHtml(s: any) {
-  return String(s)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
+function fileToDataUrl(p: string, mime: string) {
+  const b64 = fs.readFileSync(p).toString("base64");
+  return `data:${mime};base64,${b64}`;
+}
+function parseEmails(val?: string | string[]): string[] {
+  if (!val) return [];
+  if (Array.isArray(val)) return val.filter(Boolean);
+  return String(val)
+    .split(/[,\s;]+/).map((s) => s.trim())
+    .filter(Boolean);
 }
 
-/** ---------- assets (after build, __dirname -> /lib) ---------- */
-const ASSETS_DIR = path.resolve(__dirname, "../assets");
-const TEMPLATE_PATH = path.join(ASSETS_DIR, "templates", "submission.html");
-const CSS_PATH = path.join(ASSETS_DIR, "styles", "pdf.css");
-const FONT_PATH = path.join(ASSETS_DIR, "fonts", "NotoSansHebrew-Regular.ttf");
+// ---------- Asset paths (after build __dirname -> /lib) ----------
+const ASSETS_DIR   = path.resolve(__dirname, "../assets");
+const TEMPLATE_PATH= path.join(ASSETS_DIR, "templates", "submission.html");
+const CSS_PATH     = path.join(ASSETS_DIR, "styles", "pdf.css");
+const FONT_PATH    = path.join(ASSETS_DIR, "fonts", "NotoSansHebrew-Regular.ttf");
+const HEADER_PNG   = path.join(ASSETS_DIR, "img", "header.png");
+const HEADER_JPG   = path.join(ASSETS_DIR, "img", "header.jpg");
 
-/** =========================================================================
- *  submitFormToDrive  (שם נשמר לתאימות לקוח)
- *  - מייצר PDF RTL עם גופן עברי מוטמע
- *  - שולח את ה-PDF במייל (notifyEmails מהטופס או DEFAULT_NOTIFY_EMAILS)
- *  - מעלה קאונטר submissionCount בטופס
- *  ========================================================================= */
+// ---------- Callable: submit + email PDF ----------
 export const submitFormToDrive = functions
   .runWith({ memory: "1GB", timeoutSeconds: 120 })
   .https.onCall(async (data) => {
     const formId: string = data?.formId;
     const answers: Record<string, any> = data?.answers || {};
     const signatureDataUrl: string | null = data?.signatureDataUrl || null;
-
     if (!formId) fail("invalid-argument", "formId is required");
 
-    // טוען את מסמך הטופס
-    const db = getFirestore();
+    // 1) Load form
+    const db = admin.firestore();
     const formSnap = await db.doc(`forms/${formId}`).get();
     if (!formSnap.exists) fail("not-found", "form not found");
     const form = formSnap.data() as any;
-
     const title = String(form?.title || "טופס");
     const schema: Field[] = (form?.schema || []) as Field[];
 
-    // שדות חובה גלובליים (שדה ראשון ושדה קבוצה)
+    // Required global fields expected in answers
     const studentName = String(answers["studentName"] || "").trim();
-    const groupVal = String(answers["group"] || "").trim();
+    const groupVal    = String(answers["group"] || "").trim();
     if (!studentName) fail("invalid-argument", "answers.studentName is required");
-    if (!groupVal) fail("invalid-argument", "answers.group is required");
+    if (!groupVal)    fail("invalid-argument", "answers.group is required");
 
-    // וידוא קבצי נכסים
+    // 2) Verify assets
     const missing: string[] = [];
-    if (!fs.existsSync(TEMPLATE_PATH)) missing.push(TEMPLATE_PATH);
-    if (!fs.existsSync(CSS_PATH)) missing.push(CSS_PATH);
-    if (!fs.existsSync(FONT_PATH)) missing.push(FONT_PATH);
+    for (const p of [TEMPLATE_PATH, CSS_PATH, FONT_PATH]) {
+      if (!fs.existsSync(p)) missing.push(p);
+    }
     if (missing.length) fail("failed-precondition", "Missing asset files", { missing });
 
-    // קריאת נכסים
     const templateHtml = fs.readFileSync(TEMPLATE_PATH, "utf8");
-    const css = fs.readFileSync(CSS_PATH, "utf8");
-    const fontBase64 = fs.readFileSync(FONT_PATH).toString("base64");
-    const fontDataUrl = `data:font/ttf;base64,${fontBase64}`;
+    const css          = fs.readFileSync(CSS_PATH, "utf8");
+    const fontB64      = fs.readFileSync(FONT_PATH).toString("base64");
+    const fontDataUrl  = `data:font/ttf;base64,${fontB64}`;
+    const headerDataUrl= fs.existsSync(HEADER_PNG)
+      ? fileToDataUrl(HEADER_PNG, "image/png")
+      : fs.existsSync(HEADER_JPG)
+      ? fileToDataUrl(HEADER_JPG, "image/jpeg")
+      : "";
 
-    // בניית תוכן (meta rows + schema rows)
-    const metaRows =
-      `<div class="row"><div class="label">שם החניכ.ה</div><div class="value">${escHtml(studentName)}</div></div>` +
-      `<div class="row"><div class="label">קבוצה</div><div class="value">${escHtml(groupVal)}</div></div>`;
-
-    const rowsFromSchema = schema
+    // Build rows from schema (skip signature fields)
+    const rows = schema
       .filter((f) => f.type !== "signature")
       .map((f) => {
-        let v = (answers as any)[f.id];
+        let v = answers[f.id];
         if (v == null) v = "";
         if (Array.isArray(v)) v = v.join(", ");
         if (f.type === "richtext") v = stripHtml(String(v));
-        return `<div class="row"><div class="label">${escHtml(f.label)}</div><div class="value">${escHtml(v)}</div></div>`;
+        return `<div class="row"><div class="label">${f.label}</div><div class="value">${String(v)}</div></div>`;
       })
       .join("\n");
 
-    const sigHtml = signatureDataUrl
+    const signatureHtml = signatureDataUrl
       ? `<div class="signature"><div class="sig-label">חתימה:</div><img src="${signatureDataUrl}" alt="signature"/></div>`
       : "";
 
@@ -145,21 +125,21 @@ export const submitFormToDrive = functions
 
     const html = templateHtml
       .replace(/<!--STYLE-->/, style)
-      .replace(/{{\s*title\s*}}/gi, escHtml(title))
-      .replace(/{{\s*rows\s*}}/gi, metaRows + rowsFromSchema)
-      .replace(/{{\s*signature\s*}}/gi, sigHtml);
+      .replace(/{{\s*title\s*}}/gi, title)
+      .replace(/{{\s*rows\s*}}/gi, rows)
+      .replace(/{{\s*signature\s*}}/gi, signatureHtml)
+      .replace(/{{\s*header\s*}}/gi, headerDataUrl ? `<img class="header" src="${headerDataUrl}" />` : "");
 
-    // הפקת PDF
+    // 3) Generate PDF
     let browser: Browser | null = null;
     try {
+      const execPath = puppeteer.executablePath();
       browser = await puppeteer.launch({
-        executablePath: puppeteer.executablePath(),
+        executablePath: execPath,
         args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
       });
       const page = await browser.newPage();
       await page.setContent(html, { waitUntil: "networkidle0" });
-
-      // שים לב: page.pdf מחזיר Uint8Array – ממירים ל-Buffer כדי להתאים ל-nodemailer
       const pdfUint8 = await page.pdf({
         format: "A4",
         printBackground: true,
@@ -168,73 +148,52 @@ export const submitFormToDrive = functions
       });
       const pdfBuffer = Buffer.from(pdfUint8);
 
-      // -------- שליחה במייל (במקום Drive) --------
-      const fromForm: string[] = Array.isArray(form?.notifyEmails) ? form.notifyEmails : [];
-      const fallbackList =
-        (process.env.DEFAULT_NOTIFY_EMAILS || "")
-          .split(",")
-          .map((s) => s.trim())
-          .filter(Boolean);
-
-      const recipients = fromForm.length ? fromForm : fallbackList;
-      if (recipients.length === 0) {
-        fail(
-          "failed-precondition",
-          "No recipients configured. Add 'notifyEmails' array on the form doc OR set DEFAULT_NOTIFY_EMAILS env var."
-        );
+      // 4) Resolve recipients: form.notifyEmails → FORMS_INBOX → DEFAULT_NOTIFY_EMAILS
+      const fromForm: string[] = Array.isArray(form?.notifyEmails) ? form.notifyEmails.filter(Boolean) : [];
+      const fallback = parseEmails(process.env.FORMS_INBOX || process.env.DEFAULT_NOTIFY_EMAILS || "");
+      const recipients = fromForm.length ? fromForm : fallback;
+      console.log("[recipients resolved]", recipients);
+      if (!recipients.length) {
+        fail("failed-precondition", "No recipients configured. Set FORMS_INBOX/DEFAULT_NOTIFY_EMAILS env or add notifyEmails on form doc.");
       }
 
+      // 5) Send email with PDF
       const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM } = process.env;
-const secure = Number(SMTP_PORT) === 465;  // 465 => true, אחרת false
+      const port   = Number(SMTP_PORT) || 465;
+      const secure = port === 465;
 
-const transporter = nodemailer.createTransport({
-  host: SMTP_HOST,
-  port: Number(SMTP_PORT),
-  secure,
-  auth: { user: SMTP_USER!, pass: SMTP_PASS! },
-  connectionTimeout: 10000,
-  socketTimeout: 20000,
-  tls: { rejectUnauthorized: true },
-} as SMTPTransport.Options);
+      if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS) {
+        fail("failed-precondition", "Missing SMTP config (SMTP_HOST/SMTP_PORT/SMTP_USER/SMTP_PASS/SMTP_FROM).");
+      }
 
+      const transporter = nodemailer.createTransport({
+        host: SMTP_HOST,
+        port,
+        secure,
+        auth: { user: SMTP_USER, pass: SMTP_PASS },
+      });
 
-      const fileName = `${safeFileName(studentName)} - ${safeFileName(groupVal)} - ${safeFileName(title)}.pdf`;
-      const subject = `טופס חדש: ${title} — ${studentName} (${groupVal})`;
-      const htmlBody = `
-        <div dir="rtl" style="font-family:Arial,Helvetica,sans-serif">
-          <p>שלום,</p>
-          <p>התקבלה הגשה חדשה לטופס: <b>${escHtml(title)}</b>.</p>
-          <p><b>שם החניכ.ה:</b> ${escHtml(studentName)}<br/>
-             <b>קבוצה:</b> ${escHtml(groupVal)}</p>
-          <p>מצורף קובץ ה-PDF הרשמי.</p>
-        </div>
-      `;
-      const textBody = `התקבלה הגשה חדשה לטופס "${title}".\nשם החניכ.ה: ${studentName}\nקבוצה: ${groupVal}\nמצורף PDF.`;
+      const prodDate = new Date().toLocaleDateString("he-IL");
+      const subject  = `${title} – ${studentName} (${groupVal})`;
+      const fileName = safeFileName(`${studentName} - ${groupVal} - ${title}.pdf`);
 
-      const mailOptions: Mail.Options = {
+      const info = await transporter.sendMail({
         from: SMTP_FROM || SMTP_USER,
         to: recipients.join(","),
         subject,
-        text: textBody,
-        html: htmlBody,
+        text: `טופס חתום מצורף כ-PDF.\nשם החניכ/ה: ${studentName}\nקבוצה: ${groupVal}\nתאריך: ${prodDate}`,
+        html: `<p>טופס חתום מצורף כ-PDF.</p><p><b>שם החניכ/ה:</b> ${studentName}<br><b>קבוצה:</b> ${groupVal}<br><b>תאריך:</b> ${prodDate}</p>`,
         attachments: [
-          {
-            filename: fileName,
-            content: pdfBuffer,
-            contentType: "application/pdf",
-          },
+          { filename: fileName, content: pdfBuffer, contentType: "application/pdf" },
         ],
-      };
+      });
 
-      const info: SMTPTransport.SentMessageInfo = await transporter.sendMail(mailOptions);
-      console.log("[email] sent", { to: recipients, messageId: info.messageId });
-
-      // קאונטר
-      const resolvedFormId = formId || formSnap.ref.id; // ליתר ביטחון יש לנו מזהה תקף
-await db.doc(`forms/${resolvedFormId}`).update({
+      // 6) Increment counter on form
+      await db.doc(`forms/${formId}`).update({
   submissionCount: FieldValue.increment(1),
-});
+      });
 
+      console.log("[email] sent", { to: recipients, messageId: info.messageId });
       return { ok: true, sentTo: recipients, messageId: info.messageId };
     } catch (err: any) {
       fail("internal", err?.message || "Email submission failed", {
