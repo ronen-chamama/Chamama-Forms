@@ -28,7 +28,7 @@ export default function NewFormPage() {
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         });
-        router.replace(`/app/forms/${ref.id}/edit`);
+        router.replace(`/forms/${ref.id}/edit`);
       } catch (e: any) {
         console.error(e);
         setMsg("שגיאה ביצירת טופס: " + (e?.message || e));

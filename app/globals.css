@@ -2,4 +2,12 @@
 
 @layer base {
   html { direction: rtl; }
+   body:has(#firebase-emulator-warning) {
+    padding-bottom: 56px; /* גובה משוער של הבאנר; התאם אם צריך */
+  }
+
+  /* להזיז מעט את תוכן הפוטר למעלה כדי שלא יתכסו הטקסטים */
+  body:has(#firebase-emulator-warning) footer {
+    padding-bottom: 20px;
+  }
 }
