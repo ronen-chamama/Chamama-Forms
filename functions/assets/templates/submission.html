@@ -1,29 +1,32 @@
 <!doctype html>
 <html lang="he" dir="rtl">
 <head>
-  <meta charset="utf-8"/>
-  <title>{{TITLE}}</title>
+  <meta charset="utf-8" />
+  <title>{{title}}</title>
   <!--STYLE-->
 </head>
 <body>
-  <header class="header">
-    <div class="title">{{TITLE}}</div>
-    <div class="brand">תיכון החממה</div>
-  </header>
+  <div class="page">
+    <div class="header">
+      {{header_img}}
+    </div>
 
-  <main class="content">
-    <section class="fields">
-      {{ROWS}}
-    </section>
+    <h1 class="title">{{title}}</h1>
 
-    <section class="signature-block">
-      {{SIGNATURE}}
-    </section>
-  </main>
+    <div class="description">
+      {{description}}
+    </div>
 
-  <footer class="footer">
-    <div>מסמך נוצר אוטומטית</div>
-    <div class="page-number"></div>
-  </footer>
+    <div class="rows">
+      {{rows}}
+    </div>
+
+    {{signature}}
+
+    <div class="footer">
+      <span class="school">תיכון החממה</span>
+      <span class="date">{{printDate}}</span>
+    </div>
+  </div>
 </body>
 </html>

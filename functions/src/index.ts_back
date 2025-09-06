@@ -1,0 +1,302 @@
+import * as admin from "firebase-admin";
+import * as functions from "firebase-functions";
+import { FieldValue } from "firebase-admin/firestore";
+import * as fs from "fs";
+import * as path from "path";
+import puppeteer from "puppeteer";
+import nodemailer from "nodemailer";
+
+/* =========================
+   Firebase Admin init
+   ========================= */
+if (admin.apps.length === 0) {
+  admin.initializeApp();
+}
+const db = admin.firestore();
+
+/* =========================
+   Assets & helpers
+   ========================= */
+const ASSETS_DIR   = path.resolve(__dirname, "../assets");
+const TEMPLATE_PATH= path.join(ASSETS_DIR, "templates", "submission.html");
+const CSS_PATH     = path.join(ASSETS_DIR, "styles", "pdf.css");
+const FONT_PATH    = path.join(ASSETS_DIR, "fonts", "NotoSansHebrew-Regular.ttf");
+const HEADER_PNG   = path.join(ASSETS_DIR, "img", "header.png");
+const HEADER_JPG   = path.join(ASSETS_DIR, "img", "header.jpg");
+
+function exists(p: string) {
+  try { return fs.existsSync(p); } catch { return false; }
+}
+function readUtf8(p: string) {
+  return fs.readFileSync(p, "utf8");
+}
+function readBase64(p: string) {
+  return fs.readFileSync(p).toString("base64");
+}
+function stripHtml(html: string) {
+  return String(html || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+}
+function safeName(s: string) {
+  return (s || "")
+    .toString()
+    .normalize("NFKC")
+    .replace(/[<>:"/\\|?*\u0000-\u001F]/g, "") // אסור בשמות קבצים
+    .replace(/\s+/g, "_")
+    .slice(0, 180);
+}
+function findAnswerByLabelHeuristics(
+  schema: any[] | undefined,
+  answers: Record<string, any>,
+  labelIncludes: string
+) {
+  if (!schema) return "";
+  const f = schema.find((x) => String(x?.label || "").includes(labelIncludes));
+  if (f && f.id && answers[f.id] != null) return String(answers[f.id]);
+  // fallback: אם מישהו שלח במפתח לפי הטקסט
+  const byKey = Object.entries(answers).find(([k]) => k.includes(labelIncludes));
+  return byKey ? String(byKey[1]) : "";
+}
+
+/* =========================
+   Build HTML for PDF
+   ========================= */
+function renderPdfHtml(form: any, submission: { answers: Record<string, any>, signatureDataUrl?: string | null }) {
+  if (!exists(TEMPLATE_PATH)) throw new Error("Template not found");
+  if (!exists(CSS_PATH)) throw new Error("CSS not found");
+  if (!exists(FONT_PATH)) throw new Error("Font not found");
+
+  const templateHtml = readUtf8(TEMPLATE_PATH);
+  const css          = readUtf8(CSS_PATH);
+  const fontB64      = readBase64(FONT_PATH);
+  const fontDataUrl  = `data:font/ttf;base64,${fontB64}`;
+
+  // Header image (if provided)
+  let headerTag = "";
+  if (exists(HEADER_PNG)) {
+    headerTag = `<img src="data:image/png;base64,${readBase64(HEADER_PNG)}" alt="header" />`;
+  } else if (exists(HEADER_JPG)) {
+    headerTag = `<img src="data:image/jpeg;base64,${readBase64(HEADER_JPG)}" alt="header" />`;
+  }
+
+  const schema  = (form?.schema || []) as Array<any>;
+  const answers = submission.answers || {};
+
+  // Rows (exclude signature field if appears in schema)
+  const rowsHtml = schema
+    .filter((f) => f?.type !== "signature")
+    .map((f) => {
+      let v = answers[f.id];
+      if (v == null) v = "";
+      if (Array.isArray(v)) v = v.join(", ");
+      if (f.type === "richtext") v = stripHtml(String(v));
+      return `<div class="row"><div class="label">${f.label}</div><div class="value">${String(v)}</div></div>`;
+    })
+    .join("\n");
+
+  const sigHtml = submission.signatureDataUrl
+    ? `<div class="signature"><div class="sig-label">חתימה:</div><img src="${submission.signatureDataUrl}" alt="signature"/></div>`
+    : "";
+
+  const style = `
+  <style>
+    @font-face {
+      font-family: 'NotoHeb';
+      src: url('${fontDataUrl}') format('truetype');
+      font-weight: 400;
+      font-style: normal;
+      font-display: swap;
+    }
+    ${css}
+  </style>`;
+
+  const descriptionHtml = form?.description ? String(form.description) : "";
+
+  const printDate = new Date().toLocaleString("he-IL", { dateStyle: "short", timeStyle: "short" });
+
+  const title = String(form?.title || "טופס");
+  const html = templateHtml
+    .replace(/<!--STYLE-->/, style)
+    .replace(/{{\s*title\s*}}/gi, title)
+    .replace(/{{\s*header_img\s*}}/gi, headerTag)
+    .replace(/{{\s*description\s*}}/gi, descriptionHtml)
+    .replace(/{{\s*rows\s*}}/gi, rowsHtml)
+    .replace(/{{\s*signature\s*}}/gi, sigHtml)
+    .replace(/{{\s*printDate\s*}}/gi, printDate);
+
+  // Build file name: studentName - group - title.pdf
+  const studentName =
+    answers["studentName"] ||
+    findAnswerByLabelHeuristics(schema, answers, "שם החניכ") ||
+    "";
+  const groupVal =
+    answers["group"] ||
+    findAnswerByLabelHeuristics(schema, answers, "קבוצה") ||
+    "";
+
+  const fileName =
+    (studentName ? safeName(studentName) + "-" : "") +
+    (groupVal ? safeName(groupVal) + "-" : "") +
+    safeName(title) + ".pdf";
+
+  return { html, title, fileName, schema, answers };
+}
+
+/* =========================
+   Puppeteer (PDF)
+   ========================= */
+async function renderPdfBuffer(html: string): Promise<Buffer> {
+  const execPath = puppeteer.executablePath(); // טוב גם לאמולטור
+  const browser = await puppeteer.launch({
+    executablePath: execPath,
+    args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+  });
+  try {
+    const page = await browser.newPage();
+    await page.setContent(html, { waitUntil: "networkidle0" });
+    const buf = await page.pdf({
+      format: "A4",
+      printBackground: true,
+      margin: { top: "20mm", bottom: "20mm", left: "15mm", right: "15mm" },
+      preferCSSPageSize: true,
+    });
+    return Buffer.isBuffer(buf) ? buf : Buffer.from(buf);
+  } finally {
+    await browser.close().catch(() => {});
+  }
+}
+
+/* =========================
+   Email
+   ========================= */
+type MailOpts = {
+  recipients: string[];
+  from: string;
+  subject: string;
+  html: string;
+  attachmentName: string;
+  attachmentBuffer: Buffer | Uint8Array;
+};
+
+async function sendMailWithPdf(opts: MailOpts) {
+  const SMTP_HOST = process.env.SMTP_HOST || "smtp.gmail.com";
+  const SMTP_PORT = Number(process.env.SMTP_PORT || 465);
+  const SMTP_USER = process.env.SMTP_USER;
+  const SMTP_PASS = process.env.SMTP_PASS;
+
+  if (!SMTP_USER || !SMTP_PASS) {
+    throw new Error("SMTP credentials missing (SMTP_USER/SMTP_PASS).");
+  }
+
+  const transporter = nodemailer.createTransport({
+    host: SMTP_HOST,
+    port: SMTP_PORT,
+    secure: SMTP_PORT === 465,
+    auth: { user: SMTP_USER, pass: SMTP_PASS },
+  });
+
+  const info = await transporter.sendMail({
+    from: opts.from,
+    to: opts.recipients.join(","),
+    subject: opts.subject,
+    html: opts.html,
+    attachments: [
+      {
+        filename: opts.attachmentName,
+        content: Buffer.isBuffer(opts.attachmentBuffer)
+          ? opts.attachmentBuffer
+          : Buffer.from(opts.attachmentBuffer),
+        contentType: "application/pdf",
+      },
+    ],
+  });
+
+  console.log("[email] sent", { to: opts.recipients, messageId: info.messageId });
+}
+
+/* =========================
+   Callable: submitFormToDrive
+   (שולח PDF במייל + מעדכן מונה הגשות)
+   ========================= */
+export const submitFormToDrive = functions
+  .runWith({ memory: "1GB", timeoutSeconds: 120 })
+  .https.onCall(async (data, context) => {
+    const formId: string | undefined    = data?.formId;
+    const publicId: string | undefined  = data?.publicId;
+    const answers: Record<string, any>  = data?.answers || {};
+    const signatureDataUrl: string | null = data?.signatureDataUrl || null;
+
+    console.log("[submitFormToDrive] args keys:", Object.keys(data || {}));
+    if (!formId && !publicId) {
+      throw new functions.https.HttpsError("invalid-argument", "formId or publicId is required");
+    }
+
+    // Resolve form ref by id or publicId
+    let formRef = formId ? db.doc(`forms/${formId}`) : null as any;
+    if (!formRef) {
+      const q = await db.collection("forms").where("publicId", "==", publicId).limit(1).get();
+      if (q.empty) throw new functions.https.HttpsError("not-found", "Form not found by publicId");
+      formRef = q.docs[0].ref;
+    }
+    const formSnap = await formRef.get();
+    if (!formSnap.exists) throw new functions.https.HttpsError("not-found", "Form not found");
+    const form = formSnap.data() || {};
+
+    // Render HTML -> PDF
+    const { html, title, fileName } = renderPdfHtml(form, { answers, signatureDataUrl });
+    console.log("[submitFormToDrive] render done", { title, fileName });
+    const pdfBuffer = await renderPdfBuffer(html);
+
+    // Resolve recipients:
+    // 1) מה־ENV (מועדף)  2) מהטופס notifyEmails  3) אם אין — זריקת שגיאה
+    const envInbox = (process.env.FORMS_INBOX || "")
+      .split(",")
+      .map(s => s.trim())
+      .filter(Boolean);
+
+    const formEmails: string[] = Array.isArray(form.notifyEmails)
+      ? form.notifyEmails.map((s: any) => String(s)).filter(Boolean)
+      : [];
+
+    const recipients = (envInbox.length ? envInbox : formEmails);
+    if (recipients.length === 0) {
+      // אם בכל זאת רוצים “ברירת מחדל קשיחה” – אפשר לשים כאן אימייל שלך:
+      // recipients.push("ronen@chamama.org");
+      throw new functions.https.HttpsError("failed-precondition",
+        "No recipients configured. Set FORMS_INBOX env or add notifyEmails on the form.");
+    }
+    console.log("[recipients resolved]", recipients);
+
+    // From:
+    const from = process.env.SMTP_FROM || `Chamama Forms <${process.env.SMTP_USER || "no-reply@chamama.org"}>`;
+    const subject = `[Chamama Forms] ${title}`;
+    const bodyHtml = `<p>התקבל טופס חתום: <strong>${title}</strong></p><p>מצורף PDF.</p>`;
+
+    // Send email with PDF
+    await sendMailWithPdf({
+      recipients,
+      from,
+      subject,
+      html: bodyHtml,
+      attachmentName: fileName,
+      attachmentBuffer: pdfBuffer,
+    });
+
+    // Persist a minimal submission + increment counter (optional but נשמר)
+    const subRef = formRef.collection("submissions").doc();
+    await subRef.set(
+      {
+        answers,
+        signaturePresent: !!signatureDataUrl,
+        submittedAt: FieldValue.serverTimestamp(),
+        status: "emailed",
+      },
+      { merge: true }
+    );
+
+    await formRef.update({
+      submissionCount: FieldValue.increment(1),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    return { ok: true, fileName, sentTo: recipients };
+  });
