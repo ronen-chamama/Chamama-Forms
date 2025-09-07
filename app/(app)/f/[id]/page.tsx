@@ -16,6 +16,8 @@ import {
 import { httpsCallable } from "firebase/functions";
 import { GROUPS } from "@/components/constants";
 import SignaturePad from "@/components/SignaturePad";
+import { COPY } from "@/lib/copy";
+
 
 type FieldType =
   | "text"
@@ -29,7 +31,8 @@ type FieldType =
   | "radio"
   | "checkbox"
   | "checkboxes" // ← תמיכה גם בשם הזה
-  | "signature";
+  | "signature"
+   | "richtext";
 
 type Field = {
   id: string;
@@ -42,6 +45,7 @@ type Field = {
 
 type FormDoc = {
   title?: string;
+  description?: string;
   descriptionHtml?: string;
   schema?: Field[];
   notifyEmails?: string[];
@@ -237,13 +241,13 @@ export default function ParentFormPage() {
         <div className="p-5 md:p-6 border-t border-neutral-200">
           <h1 className="text-2xl font-semibold">{form.title || "טופס"}</h1>
 
-          {form.descriptionHtml ? (
-            <div
-              className="prose prose-neutral rtl:text-right max-w-none prose-p:my-2 prose-ul:my-2 prose-ol:my-2 prose-li:my-1 prose-strong:font-semibold prose-h2:text-xl prose-h3:text-lg"
-              style={{ direction: "rtl" }}
-              dangerouslySetInnerHTML={{ __html: form.descriptionHtml }}
-            />
-          ) : null}
+          {(form.description || form.descriptionHtml) ? (
+  <div
+    className="prose prose-neutral rtl:text-right max-w-none prose-p:my-2 prose-ul:my-2 prose-ol:my-2 prose-li:my-1 prose-strong:font-semibold prose-h2:text-xl prose-h3:text-lg"
+    style={{ direction: "rtl" }}
+    dangerouslySetInnerHTML={{ __html: form.description || form.descriptionHtml || "" }}
+  />
+) : null}
         </div>
       </div>
 
@@ -375,6 +379,13 @@ export default function ParentFormPage() {
                 onChange={(arr) => setAns(f.id, arr)}
               />
             )}
+{f.type === "richtext" && (
+  <div
+    className="prose prose-neutral rtl:text-right max-w-none prose-p:my-2 prose-ul:my-2 prose-ol:my-2 prose-li:my-1 prose-strong:font-semibold prose-h2:text-xl prose-h3:text-lg"
+    style={{ direction: "rtl" }}
+    dangerouslySetInnerHTML={{ __html: f.description || "" }}
+  />
+)}
 
             {f.type === "signature" && (
               <div className="space-y-2">

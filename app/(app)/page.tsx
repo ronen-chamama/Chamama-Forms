@@ -15,7 +15,10 @@ import {
   deleteDoc,
   query,
   where,
+  getDoc,
 } from "firebase/firestore";
+import { COPY } from "@/lib/copy";
+
 
 type FormListItem = {
   id: string;
@@ -52,7 +55,7 @@ export default function MyFormsPage() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // טעינה
+  // טעינת טפסים + ניקוי טפסים ריקים
   useEffect(() => {
     if (!user) return;
     (async () => {
@@ -79,11 +82,18 @@ export default function MyFormsPage() {
         updatedAt: (d.data() as any).updatedAt,
       })) as FormListItem[];
 
+      // מאחד כפילויות
       const map = new Map<string, FormListItem>();
       [...list1, ...list2].forEach((f) => map.set(f.id, f));
-      const list = Array.from(map.values()).sort(
+      let list = Array.from(map.values()).sort(
         (a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)
       );
+
+      // ניקוי טפסים ריקים (מחיקה מה-DB + הסרה מהרשימה)
+      const cleanedIds = await cleanupEmptyForms(db, user.uid, list.map((f) => f.id));
+      if (cleanedIds.size > 0) {
+        list = list.filter((f) => !cleanedIds.has(f.id));
+      }
 
       setForms(list);
       setLoading(false);
@@ -102,48 +112,59 @@ export default function MyFormsPage() {
     const payload = {
       title: "ללא כותרת",
       description: "",
+      schema: [],
       fields: [],
       formFields: [],
       items: [],
-      schema: [],
       ownerUid: user.uid,
       createdAt: new Date(),
       updatedAt: Date.now(),
       publicId: id,
+      submissionCount: 0,
     };
     await setDoc(doc(db, "forms", id), payload, { merge: true });
     await setDoc(doc(db, "users", user.uid, "forms", id), payload, { merge: true });
     router.push(`/forms/${id}/edit`);
   }
 
-  async function deleteForm(id: string) {
+  async function deleteFormEverywhere(id: string, publicId?: string) {
     if (!user) return;
     await deleteDoc(doc(db, "forms", id)).catch(() => {});
     await deleteDoc(doc(db, "users", user.uid, "forms", id)).catch(() => {});
-    setForms((prev) => prev.filter((f) => f.id !== id));
+    if (publicId) {
+      await deleteDoc(doc(db, "formsPublic", publicId)).catch(() => {});
+    }
+  }
+
+  async function deleteForm(id: string) {
+    const f = forms.find((x) => x.id === id);
+    await deleteFormEverywhere(id, f?.publicId);
+    setForms((prev) => prev.filter((ff) => ff.id !== id));
     setConfirmDeleteId(null);
     setOpenMenuId(null);
   }
 
   return (
     <main className="mx-auto max-w-7xl px-6 sm:px-8 py-8" dir="rtl">
-      <h1 className="text-2xl font-semibold text-center">הטפסים שלי</h1>
+      <h1 className="text-2xl font-semibold text-center">{COPY.formsPage.title}</h1>
 
       <div className="mt-8 grid grid-cols-1 gap-8 md:[grid-template-columns:260px_minmax(0,1fr)]">
+        {/* צד ימין – יצירת טופס */}
         <aside>
           <div className="rounded-2xl border border-neutral-200 bg-white p-4">
             <button
               onClick={createNewForm}
               className="w-full h-11 rounded-xl bg-sky-600 text-white font-medium hover:bg-sky-700"
             >
-              טופס חדש
+              {COPY.formsPage.newFormBtn}
             </button>
             <div className="mt-4 text-sm text-neutral-600">
-              צרו טופס חדש והתחילו להוסיף שדות. ניתן לשתף בקישור.
+              {COPY.formsPage.newFormHelp}
             </div>
           </div>
         </aside>
 
+        {/* צד שמאל – רשימת טפסים */}
         <section>
           {loading ? (
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -153,7 +174,7 @@ export default function MyFormsPage() {
             </div>
           ) : forms.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-neutral-300 p-8 text-center text-neutral-600">
-              עדיין אין טפסים. לחצו “טופס חדש”.
+              {COPY.formsPage.emptyState}
             </div>
           ) : (
             <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
@@ -161,7 +182,6 @@ export default function MyFormsPage() {
                 const pubId = (form.publicId && form.publicId.trim()) || form.id;
                 const fillUrl =
                   typeof window !== "undefined" ? `${window.location.origin}/f/${pubId}` : `/f/${pubId}`;
-
                 const isOpen = openMenuId === form.id;
 
                 return (
@@ -190,7 +210,7 @@ export default function MyFormsPage() {
                         {form.title || "ללא כותרת"}
                       </div>
                       <div className="mt-1 text-sm text-neutral-600">
-                        מולאו {form.submissionCount ?? 0} טפסים
+                       {COPY.formsPage.filledCount(form.submissionCount ?? 0)}
                       </div>
                     </div>
 
@@ -220,7 +240,7 @@ export default function MyFormsPage() {
                               setOpenMenuId(null);
                             }}
                           >
-                            העתקת קישור למילוי
+                            {COPY.formsPage.menu.copyLink}
                           </button>
 
                           <Link
@@ -231,7 +251,7 @@ export default function MyFormsPage() {
                               setOpenMenuId(null);
                             }}
                           >
-                            עריכה
+                            {COPY.formsPage.menu.edit}
                           </Link>
 
                           <button
@@ -241,7 +261,7 @@ export default function MyFormsPage() {
                               setConfirmDeleteId(form.id);
                             }}
                           >
-                            מחיקה
+                            {COPY.formsPage.menu.delete}
                           </button>
                         </div>
 
@@ -252,20 +272,20 @@ export default function MyFormsPage() {
                             onClick={(e) => e.stopPropagation()}
                           >
                             <div className="text-sm text-neutral-800">
-                              למחוק את “{form.title || "ללא כותרת"}”?
+                               {COPY.formsPage.menu.confirmDeleteTitle(form.title)}
                             </div>
                             <div className="mt-3 flex items-center justify-end gap-2">
                               <button
                                 className="h-9 px-3 rounded-lg border border-neutral-300 text-sm hover:bg-neutral-50"
                                 onClick={() => setConfirmDeleteId(null)}
                               >
-                                ביטול
+                                {COPY.formsPage.menu.cancel}
                               </button>
                               <button
                                 className="h-9 px-3 rounded-lg bg-red-600 text-white text-sm hover:bg-red-700"
                                 onClick={() => deleteForm(form.id)}
                               >
-                                מחיקה
+                                 {COPY.formsPage.menu.deleteAction}
                               </button>
                             </div>
                           </div>
@@ -281,4 +301,75 @@ export default function MyFormsPage() {
       </div>
     </main>
   );
+}
+
+/* ===================== Helpers ===================== */
+
+/**
+ * מוחק טפסים שהם ריקים לגמרי:
+ * - כותרת "ללא כותרת" (או ריקה)
+ * - אין description/descriptionHtml
+ * - אין schema/fields/formFields/items (כולם ריקים או לא קיימים)
+ * - אין הגשות (submissionCount לא קיים או 0)
+ *
+ * מחיקה משלושת הנתיבים: forms/{id}, users/{uid}/forms/{id}, formsPublic/{publicId}
+ * מחזיר set של המזהים שנמחקו.
+ */
+async function cleanupEmptyForms(
+  db: ReturnType<typeof getFirestore>,
+  uid: string,
+  ids: string[]
+): Promise<Set<string>> {
+  const cleaned = new Set<string>();
+
+  await Promise.all(
+    ids.map(async (id) => {
+      try {
+        // קורא תחילה את המסמך הראשי
+        let snap = await getDoc(doc(db, "forms", id));
+        let data: any = snap.exists() ? snap.data() : null;
+
+        // אם אין — נסה מתת-האוסף של המשתמש
+        if (!data) {
+          const userSnap = await getDoc(doc(db, "users", uid, "forms", id));
+          data = userSnap.exists() ? userSnap.data() : null;
+        }
+        if (!data) return;
+
+        const title = (data.title || "").toString().trim();
+        const desc = (data.description || data.descriptionHtml || "").toString().trim();
+        const submissionCount = Number(data.submissionCount || 0);
+
+        const schemaLen = Array.isArray(data.schema) ? data.schema.length : 0;
+        const fieldsLen = Array.isArray(data.fields) ? data.fields.length : 0;
+        const formFieldsLen = Array.isArray(data.formFields) ? data.formFields.length : 0;
+        const itemsLen = Array.isArray(data.items) ? data.items.length : 0;
+
+        const noCustomFields =
+          schemaLen + fieldsLen + formFieldsLen + itemsLen === 0;
+
+        const isDefaultTitle = title === "" || title === "ללא כותרת";
+        const noDesc = desc === "";
+        const noSubs = submissionCount <= 0;
+
+        const shouldDelete = isDefaultTitle && noDesc && noCustomFields && noSubs;
+
+        if (shouldDelete) {
+          const publicId = (data.publicId || id)?.toString();
+
+          await Promise.allSettled([
+            deleteDoc(doc(db, "forms", id)),
+            deleteDoc(doc(db, "users", uid, "forms", id)),
+            publicId ? deleteDoc(doc(db, "formsPublic", publicId)) : Promise.resolve(),
+          ]);
+
+          cleaned.add(id);
+        }
+      } catch {
+        // אי-אפשר לנקות? מתעלמים בשקט.
+      }
+    })
+  );
+
+  return cleaned;
 }
