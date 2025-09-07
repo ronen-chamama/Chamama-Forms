@@ -6,13 +6,8 @@ import dynamic from "next/dynamic";
 import { useParams } from "next/navigation";
 import { auth } from "@/lib/firebaseClient";
 import { onAuthStateChanged, User } from "firebase/auth";
-import {
-  getFirestore,
-  doc,
-  getDoc,
-  setDoc,
-  updateDoc,
-} from "firebase/firestore";
+import { getFirestore, doc, getDoc, setDoc } from "firebase/firestore";
+import Link from "next/link";
 
 /* ---------- Rich Text (נקי) ---------- */
 const RichTextEditor = dynamic(() => import("@/components/RichTextEditor"), {
@@ -46,26 +41,168 @@ type FormField = {
 
 type FormDoc = {
   title: string;
-  description?: string;
+  description?: string; // HTML
   fields: FormField[];
   ownerUid?: string;
   publicId?: string;
 };
 
-/* ---------- Helpers (global) ---------- */
+/* ---------- Helpers ---------- */
 function typeLabel(t: FieldType) {
   switch (t) {
     case "text": return "טקסט";
-    case "textarea": return "תיאור ארוך";
+    case "textarea": return "תיבת טקסט";
     case "number": return "מספר";
     case "phone": return "טלפון";
     case "email": return "דוא״ל";
     case "consent": return "אישור/הסכמה";
     case "select": return "בחירה מרשימה";
     case "radio": return "בחירה אחת";
-    case "checkboxes": return "רשימת סימון";
+    case "checkbox": return "בחירה מרובה";
+    case "checkboxes": return "בחירה מרובה";
     case "signature": return "חתימה";
   }
+}
+
+/** הסרת undefined מכל עומק */
+function compactDeep<T>(val: T): T {
+  if (Array.isArray(val)) {
+    return val
+      .filter((x) => x !== undefined)
+      .map((x: any) =>
+        typeof x === "object" && x !== null ? compactDeep(x) : x
+      ) as any;
+  }
+  if (val && typeof val === "object") {
+    const out: any = {};
+    for (const [k, v] of Object.entries(val as any)) {
+      if (v === undefined) continue;
+      if (Array.isArray(v)) {
+        out[k] = v
+          .filter((x) => x !== undefined)
+          .map((x: any) =>
+            typeof x === "object" && x !== null ? compactDeep(x) : x
+          );
+      } else if (v && typeof v === "object") {
+        const nested = compactDeep(v as any);
+        if (Object.keys(nested).length > 0) out[k] = nested;
+      } else {
+        out[k] = v;
+      }
+    }
+    return out;
+  }
+  return val;
+}
+
+/** המרה מ"סכימה ישנה" לשדה חדש */
+function schemaItemToField(s: any): FormField {
+  const id =
+    (s && typeof s.id === "string" && s.id) ||
+    (typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : Math.random().toString(36).slice(2));
+  const typeMap: Record<string, FieldType> = {
+    text: "text",
+    textarea: "textarea",
+    number: "number",
+    phone: "phone",
+    email: "email",
+    consent: "consent",
+    select: "select",
+    radio: "radio",
+    checkboxes: "checkboxes",
+    signature: "signature",
+  };
+  const t = typeMap[s?.type] || "text";
+  const options = Array.isArray(s?.options)
+    ? s.options.filter((o: any) => typeof o === "string" && o.trim() !== "")
+    : undefined;
+  const placeholder =
+    typeof s?.placeholder === "string" && s.placeholder.trim() !== ""
+      ? s.placeholder
+      : undefined;
+  const required = s?.required ? true : undefined;
+
+  return {
+    id,
+    type: t,
+    label: typeof s?.label === "string" ? s.label : "",
+    required,
+    options,
+    placeholder,
+  };
+}
+
+/** המרה לשכבת תאימות ישנה ("schema") */
+function fieldToLegacySchemaItem(f: FormField) {
+  return compactDeep({
+    id: f.id,
+    type: f.type,
+    label: f.label || "",
+    required: f.required ? true : undefined,
+    options:
+      (f.type === "select" || f.type === "radio" || f.type === "checkboxes") &&
+      Array.isArray(f.options) &&
+      f.options.length
+        ? f.options
+        : undefined,
+    placeholder:
+      (f.type === "text" || f.type === "textarea") && f.placeholder
+        ? f.placeholder
+        : undefined,
+  });
+}
+
+/** ניקוי שדה לשמירה */
+function sanitizeField(f: FormField): FormField {
+  const isChoice =
+    f.type === "select" || f.type === "radio" || f.type === "checkboxes";
+  const options =
+    isChoice && Array.isArray(f.options)
+      ? f.options.filter((o) => typeof o === "string" && o.trim() !== "")
+      : undefined;
+
+  const cleaned: FormField = {
+    id:
+      f.id ||
+      (typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : Math.random().toString(36).slice(2)),
+    type: f.type,
+    label: f.label || "",
+    required: f.required ? true : undefined, // לא נשמור false
+    placeholder:
+      f.placeholder && f.placeholder.trim() !== "" ? f.placeholder : undefined,
+    options: options && options.length ? options : undefined,
+  };
+  return compactDeep(cleaned);
+}
+
+/** ניקוי טופס לשמירה, וייצור תואמי legacy */
+function buildPayloadForSave(form: FormDoc, user?: User | null) {
+  const cleanedFields = Array.isArray(form.fields)
+    ? form.fields.map(sanitizeField)
+    : [];
+
+  const legacySchema = cleanedFields.map(fieldToLegacySchemaItem);
+
+  const desc = typeof form.description === "string" ? form.description : "";
+
+  const payload: any = {
+    title: form.title || "",
+    description: desc,            // החדש
+    descriptionHtml: desc,        // התאמה לישן
+    fields: cleanedFields,        // החדש
+    formFields: cleanedFields,    // תאימות
+    items: cleanedFields,         // תאימות
+    schema: legacySchema,         // הישן
+    updatedAt: Date.now(),
+  };
+  if (form.ownerUid || user?.uid) payload.ownerUid = form.ownerUid || user?.uid;
+  if (form.publicId) payload.publicId = form.publicId;
+
+  return compactDeep(payload);
 }
 
 /* =================================================================== */
@@ -84,26 +221,50 @@ export default function EditFormPage() {
     return () => unsub();
   }, []);
 
+  /* ---------- טעינה: קורא מכל הפורמטים ומנרמל ---------- */
   useEffect(() => {
     if (!user || !formId) return;
     const db = getFirestore();
 
     (async () => {
       setLoading(true);
-      // /forms/{id}
+      // forms/{id} תחילה
       let snap = await getDoc(doc(db, "forms", formId));
       if (!snap.exists()) {
-        // /users/{uid}/forms/{id}
+        // גיבוי: users/{uid}/forms/{id}
         snap = await getDoc(doc(db, "users", user.uid, "forms", formId));
       }
+
       if (snap.exists()) {
         const data = snap.data() as any;
+
+        // fields ← formFields ← items ← schema
+        let loadedFields: FormField[] = [];
+        if (Array.isArray(data.fields) && data.fields.length) {
+          loadedFields = data.fields as FormField[];
+        } else if (Array.isArray(data.formFields) && data.formFields.length) {
+          loadedFields = data.formFields as FormField[];
+        } else if (Array.isArray(data.items) && data.items.length) {
+          loadedFields = data.items as FormField[];
+        } else if (Array.isArray(data.schema) && data.schema.length) {
+          loadedFields = (data.schema as any[]).map(schemaItemToField);
+        }
+
+        const loadedDesc =
+          typeof data.description === "string"
+            ? data.description
+            : typeof data.descriptionHtml === "string"
+            ? data.descriptionHtml
+            : "";
+
         setForm({
-          title: data.title ?? "ללא כותרת",
-          description: data.description ?? "",
-          fields: Array.isArray(data.fields) ? (data.fields as FormField[]) : [],
-          ownerUid: data.ownerUid ?? user.uid,
-          publicId: data.publicId,
+          title: typeof data.title === "string" ? data.title : "ללא כותרת",
+          description: loadedDesc,
+          fields: loadedFields,
+          ownerUid:
+            typeof data.ownerUid === "string" ? data.ownerUid : user.uid,
+          publicId:
+            typeof data.publicId === "string" ? data.publicId : undefined,
         });
       } else {
         setForm({
@@ -113,47 +274,50 @@ export default function EditFormPage() {
           ownerUid: user.uid,
         });
       }
+
       setLoading(false);
     })();
   }, [user, formId]);
 
   const db = useMemo(() => getFirestore(), []);
-  const formDocRefPrimary = useMemo(
+  const formsRef = useMemo(
     () => (formId ? doc(db, "forms", formId) : null),
     [db, formId]
   );
-  const formDocRefFallback = useMemo(
+  const userFormsRef = useMemo(
     () => (user && formId ? doc(db, "users", user.uid, "forms", formId) : null),
     [db, user, formId]
   );
 
+  /* ---------- שמירה: כותב לכל הפורמטים + formsPublic ---------- */
   async function saveForm() {
     if (!form || !formId) return;
     setSaving(true);
     try {
-      if (formDocRefPrimary) {
-        const payload = { ...form, updatedAt: Date.now() };
-        try {
-          await updateDoc(formDocRefPrimary, payload as any);
-        } catch {
-          await setDoc(formDocRefPrimary, payload as any, { merge: true });
-        }
-      }
-    } catch {
-      if (formDocRefFallback) {
-        const payload = { ...form, updatedAt: Date.now() };
-        try {
-          await updateDoc(formDocRefFallback, payload as any);
-        } catch {
-          await setDoc(formDocRefFallback, payload as any, { merge: true });
-        }
-      }
+      // הגדרת publicId עקבי
+      const pubId =
+        (form.publicId && form.publicId.trim()) || formId;
+
+      const payloadBase = { ...form, publicId: pubId };
+      const payload = buildPayloadForSave(payloadBase, user);
+
+      // ל־forms/{id}
+      if (formsRef) await setDoc(formsRef, payload, { merge: true });
+      // ל־users/{uid}/forms/{id}
+      if (userFormsRef) await setDoc(userFormsRef, payload, { merge: true });
+      // גם לאוסף הציבורי — למקרה שדף ההורים קורא משם
+      const publicRef = doc(getFirestore(), "formsPublic", pubId);
+      await setDoc(publicRef, payload, { merge: true });
+
+      setForm((prev) =>
+        prev ? { ...prev, ...payload, publicId: pubId } : prev
+      );
     } finally {
       setSaving(false);
     }
   }
 
-  /* ---------- Add field at specific index ---------- */
+  /* ---------- Drag & Drop ---------- */
   function addFieldAt(type: FieldType, index: number) {
     if (!form) return;
     const id =
@@ -162,36 +326,28 @@ export default function EditFormPage() {
         : Math.random().toString(36).slice(2);
     const baseLabel: Record<FieldType, string> = {
       text: "טקסט",
-      textarea: "תיאור ארוך",
+      textarea: "תיבת טקסט",
       number: "מספר",
       phone: "טלפון",
       email: "דוא״ל",
       consent: "אישור והסכמה",
       select: "בחירה מרשימה",
       radio: "בחירה אחת",
-      checkboxes: "רשימת סימון",
+      checkboxes: "בחירה מרובה",
       signature: "חתימה",
     };
-    const f: FormField = {
-      id,
-      type,
-      label: baseLabel[type],
-      required: false,
-      options: ["select", "radio", "checkboxes"].includes(type)
-        ? ["אפשרות 1", "אפשרות 2"]
-        : undefined,
-    };
+    const f: FormField = { id, type, label: baseLabel[type], required: false };
     const arr = [...form.fields];
     const i = Math.max(0, Math.min(index, arr.length));
     arr.splice(i, 0, f);
     setForm({ ...form, fields: arr });
   }
 
-  /* ---------- Drag & Drop state ---------- */
   const [dragKind, setDragKind] = useState<
     null | { from: "palette"; ftype: FieldType } | { from: "field"; id: string }
   >(null);
   const [overIndex, setOverIndex] = useState<number | null>(null);
+  const isDragging = Boolean(dragKind);
 
   function handleDropAt(index: number, e: React.DragEvent) {
     e.preventDefault();
@@ -228,9 +384,25 @@ export default function EditFormPage() {
     );
   }
 
+  const pubId = (form.publicId && form.publicId.trim()) || formId;
+  const liveUrl =
+    typeof window !== "undefined"
+      ? `${window.location.origin}/f/${pubId}`
+      : "";
+
   return (
-    <main className="mx-auto max-w-7xl px-6 sm:px-8 py-8">
-      {/* ===== Hero קטן + טייטל/תיאור (מלא רוחב) ===== */}
+  <main className="mx-auto max-w-7xl px-6 sm:px-8 py-8" dir="rtl">
+    {/* כפתור חזרה לטפסים שלי */}
+    <div className="mb-4 flex justify-end">
+      <Link
+        href="/"
+        className="inline-flex items-center gap-2 h-9 px-3 rounded-lg border border-neutral-300 bg-white text-sm hover:bg-neutral-50"
+      >
+        <span aria-hidden>↩︎</span>
+        <span>חזרה לטפסים שלי</span>
+      </Link>
+    </div>
+      {/* ===== Hero קטן + טייטל/תיאור ===== */}
       <div className="rounded-2xl border border-neutral-200 bg-white overflow-hidden">
         <div className="relative">
           <div className="h-32 md:h-40 bg-gradient-to-br from-neutral-200 via-neutral-100 to-neutral-200" />
@@ -255,22 +427,35 @@ export default function EditFormPage() {
             placeholder="כותרת הטופס"
           />
 
-          {/* Rich Text — עטיפה נקייה בלי “כיעור” */}
           <div className="mt-3 rounded-xl border border-neutral-300 bg-white focus-within:ring-2 focus-within:ring-sky-400">
             <RichTextEditor
               value={form.description || ""}
               onChange={(html: string) => setForm({ ...form, description: html })}
               placeholder="תיאור קצר (אפשר להדביק טקסט עשיר/קישורים)"
-              // במידה והקומפוננטה תומכת:
-              className="min-h-[120px]"
+              className="min-h-[140px]"
             />
           </div>
 
-          <div className="mt-3 flex justify-end">
+          <div className="mt-3 flex items-center justify-between gap-3">
+            {liveUrl ? (
+              <a
+                href={liveUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 h-10 px-3 rounded-xl border border-neutral-200 bg-white text-sm hover:bg-neutral-50"
+                title="פתיחת תצוגת הטופס בחלון חדש"
+              >
+                <span aria-hidden>👁️</span>
+                <span>תצוגה</span>
+              </a>
+            ) : (
+              <span />
+            )}
+
             <button
               onClick={saveForm}
               disabled={saving}
-              className="h-11 px-5 rounded-xl bg-sky-600 text-white text-sm font-semibold hover:bg-sky-700 disabled:opacity-50"
+              className="h-10 px-5 rounded-xl bg-sky-600 text-white text-sm font-semibold hover:bg-sky-700 disabled:opacity-50"
             >
               {saving ? "שומר..." : "שמירה"}
             </button>
@@ -333,9 +518,8 @@ export default function EditFormPage() {
             }}
           >
             {form.fields.length === 0 ? (
-              // ⬇️ כשהרשימה ריקה — ה־Placeholder עצמו מקבל Drop (אינדקס 0)
               <EmptyDropZone
-                dragging={!!dragKind}
+                isDragging={isDragging}
                 active={overIndex === 0}
                 onDragEnter={(e) => {
                   e.preventDefault();
@@ -446,13 +630,13 @@ function PaletteItem({
 }
 
 function EmptyDropZone({
-  dragging,
+  isDragging,
   active,
   onDragEnter,
   onDragOver,
   onDrop,
 }: {
-  dragging: boolean;
+  isDragging: boolean;
   active: boolean;
   onDragEnter: (e: React.DragEvent) => void;
   onDragOver: (e: React.DragEvent) => void;
@@ -478,7 +662,9 @@ function EmptyDropZone({
       ].join(" ")}
     >
       <div className="text-neutral-600">
-        {dragging ? "שחררו כאן להוספת רכיב ראשון" : "גררו רכיבים מהצד הימני או לחצו כדי להוסיף."}
+        {isDragging
+          ? "שחררו כאן להוספת רכיב ראשון"
+          : "גררו רכיבים מהצד הימני או לחצו כדי להוסיף."}
       </div>
     </div>
   );
@@ -541,7 +727,7 @@ function FieldCard({
 
   return (
     <div className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm hover:shadow-md transition-shadow">
-      {/* כותרת הכרטיס — מכאן מתחילים לגרור (בלי ידית ייעודית) */}
+      {/* אזור גרירה: הכותרת */}
       <div
         className="flex items-center justify-between gap-3 cursor-grab active:cursor-grabbing select-none"
         draggable={draggable}
@@ -569,7 +755,7 @@ function FieldCard({
         </button>
       </div>
 
-      {/* גוף הכרטיס — אין ממנו גרירה כדי לא להפריע להקלדה/קליקים */}
+      {/* גוף הכרטיס — אין ממנו גרירה */}
       <div
         className="mt-3 grid gap-3"
         onMouseDown={(e) => e.stopPropagation()}
@@ -624,23 +810,24 @@ function ChoiceEditor({
   options: string[];
   onChange: (opts: string[]) => void;
 }) {
+  const list = Array.isArray(options) ? options : [];
   function set(i: number, val: string) {
-    const arr = [...options];
+    const arr = [...list];
     arr[i] = val;
     onChange(arr);
   }
   function add() {
-    onChange([...options, `אפשרות ${options.length + 1}`]);
+    onChange([...list, `אפשרות ${list.length + 1}`]);
   }
   function remove(i: number) {
-    const arr = [...options];
+    const arr = [...list];
     arr.splice(i, 1);
     onChange(arr);
   }
   return (
     <div className="grid gap-2">
       <div className="text-sm text-neutral-600">אפשרויות</div>
-      {options.map((opt, i) => (
+      {list.map((opt, i) => (
         <div key={i} className="flex items-center gap-2">
           <input
             value={opt}

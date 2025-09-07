@@ -1,19 +1,34 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Image from "next/image";
 import { useParams, useRouter } from "next/navigation";
 import { db, functions } from "@/lib/firebaseClient";
 import {
-  doc, getDoc, collection, getDocs, query as fsQuery, where, limit,
+  doc,
+  getDoc,
+  collection,
+  getDocs,
+  query as fsQuery,
+  where,
+  limit,
 } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { GROUPS } from "@/components/constants";
 import SignaturePad from "@/components/SignaturePad";
 
 type FieldType =
-  | "text" | "textarea" | "parentName"
-  | "number" | "phone" | "email"
-  | "consent" | "select" | "radio" | "checkbox"
+  | "text"
+  | "textarea"
+  | "parentName"
+  | "number"
+  | "phone"
+  | "email"
+  | "consent"
+  | "select"
+  | "radio"
+  | "checkbox"
+  | "checkboxes" // ← תמיכה גם בשם הזה
   | "signature";
 
 type Field = {
@@ -40,7 +55,7 @@ export default function ParentFormPage() {
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState<FormDoc | null>(null);
   const [schema, setSchema] = useState<Field[]>([]);
-  const [resolvedFormId, setResolvedFormId] = useState<string>(incomingId); // נטען/נעדכן אחרי פולבאק
+  const [resolvedFormId, setResolvedFormId] = useState<string>(incomingId);
   const [msg, setMsg] = useState<string>("");
 
   // תשובות — כולל שני השדות הקבועים מראש
@@ -51,17 +66,15 @@ export default function ParentFormPage() {
   const [signatureDataUrl, setSignatureDataUrl] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
 
-  // טען טופס (מנסה קודם לפי מזהה מסמך; אם לא נמצא – מחפש לפי publicId)
+  // טען טופס (מזהה מסמך → publicId)
   useEffect(() => {
     (async () => {
       setLoading(true);
       try {
-        // ניסיון ישיר כמסמך
         let snap = await getDoc(doc(db, "forms", incomingId));
         let formIdToUse = incomingId;
 
         if (!snap.exists()) {
-          // חיפוש לפי publicId
           const qs = await getDocs(
             fsQuery(
               collection(db, "forms"),
@@ -114,7 +127,9 @@ export default function ParentFormPage() {
   function toggleCheckboxArray(fieldId: string, val: string, checked: boolean) {
     setAnswers((a) => {
       const arr: string[] = Array.isArray(a[fieldId]) ? a[fieldId] : [];
-      const next = checked ? Array.from(new Set([...arr, val])) : arr.filter((x) => x !== val);
+      const next = checked
+        ? Array.from(new Set([...arr, val]))
+        : arr.filter((x) => x !== val);
       return { ...a, [fieldId]: next };
     });
   }
@@ -128,7 +143,9 @@ export default function ParentFormPage() {
     if (!answers.group) return setMsg("נא לבחור קבוצה");
 
     if (emailFieldId && answers[emailFieldId]) {
-      const ok = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(answers[emailFieldId]));
+      const ok = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(
+        String(answers[emailFieldId])
+      );
       if (!ok) return setMsg("כתובת אימייל לא תקינה");
     }
     if (phoneFieldId && answers[phoneFieldId]) {
@@ -136,14 +153,18 @@ export default function ParentFormPage() {
       if (!ok) return setMsg("מספר טלפון לא תקין");
     }
 
-    // חובה: שדות הנדרשים בסכמה
-    const missingRequired = schema.filter((f) => f.required).some((f) => {
-      const v = answers[f.id];
-      if (f.type === "checkbox") return !Array.isArray(v) || v.length === 0;
-      if (f.type === "consent") return v !== true;
-      if (f.type === "signature") return false; // נטפל בזה בנפרד
-      return v == null || String(v).trim() === "";
-    });
+    // חובה: שדות הנדרשים בסכמה (כולל בחירה מרובה)
+    const missingRequired = schema
+      .filter((f) => f.required)
+      .some((f) => {
+        const v = answers[f.id];
+        if (f.type === "checkbox" || f.type === "checkboxes") {
+          return !Array.isArray(v) || v.length === 0;
+        }
+        if (f.type === "consent") return v !== true;
+        if (f.type === "signature") return false; // נבדק בנפרד
+        return v == null || String(v).trim() === "";
+      });
     if (missingRequired) return setMsg("יש למלא את כל השדות המסומנים כחובה");
 
     if (signatureRequired && !signatureDataUrl) {
@@ -154,8 +175,8 @@ export default function ParentFormPage() {
       setSending(true);
       const fn = httpsCallable(functions, "submitFormToDrive");
       await fn({
-        formId: resolvedFormId,        // תומך בגרסת הפונקציה הקיימת
-        publicId: incomingId,          // ואם עדכנת לפולבאק בצד השרת — אז גם זה קיים
+        formId: resolvedFormId,
+        publicId: incomingId,
         answers,
         signatureDataUrl: signatureDataUrl || null,
       });
@@ -168,205 +189,425 @@ export default function ParentFormPage() {
     }
   }
 
+  /* ---------- UI ---------- */
   if (loading) {
-    return <main dir="rtl" className="p-6 max-w-3xl mx-auto">טוען…</main>;
+    return (
+      <main dir="rtl" className="mx-auto max-w-3xl px-6 sm:px-8 py-8">
+        <div className="rounded-2xl border border-neutral-200 bg-white overflow-hidden">
+          <div className="h-40 md:h-56 bg-neutral-200 animate-pulse" />
+          <div className="p-5 space-y-3">
+            <div className="h-6 w-2/3 bg-neutral-200 animate-pulse rounded" />
+            <div className="h-4 w-1/3 bg-neutral-200 animate-pulse rounded" />
+          </div>
+        </div>
+      </main>
+    );
   }
+
   if (!form) {
-    return <main dir="rtl" className="p-6 max-w-3xl mx-auto">הטופס לא נמצא.</main>;
+    return (
+      <main dir="rtl" className="mx-auto max-w-3xl px-6 sm:px-8 py-8">
+        <div className="rounded-2xl border border-neutral-200 bg-white p-6 text-center text-neutral-700">
+          הטופס לא נמצא.
+        </div>
+      </main>
+    );
   }
 
   return (
-    <main dir="rtl" className="p-6 max-w-3xl mx-auto">
-      <h1 className="text-2xl font-semibold mb-2">{form.title || "טופס"}</h1>
-
-      {form.descriptionHtml && (
-        <div
-          className="prose prose-sm max-w-none mb-6"
-          // אם תרצה סינון ל-HTML שמודבק מוורד, נוסיף בהמשך sanitizer
-          dangerouslySetInnerHTML={{ __html: form.descriptionHtml }}
-        />
-      )}
-
-      <form onSubmit={onSubmit} className="space-y-4">
-        {/* 1) שם החניכ.ה (חובה) */}
-        <div className="border rounded p-3 bg-white">
-          <div className="text-sm mb-1">
-            שם החניכ.ה <span className="text-red-600">*</span>
+    <main dir="rtl" className="mx-auto max-w-3xl px-6 sm:px-8 py-8">
+      {/* Hero – תואם לעריכת הטופס: פלייסהולדר + לוגו */}
+      <div className="rounded-2xl border border-neutral-200 bg-white overflow-hidden">
+        <div className="relative">
+          <div className="h-40 md:h-56 bg-gradient-to-br from-neutral-200 via-neutral-100 to-neutral-200" />
+          <div className="absolute top-2 left-2 opacity-80">
+            <div className="relative w-[120px] h-[28px]">
+              <Image
+                src="/branding/logo-banner-color.png"
+                alt=""
+                fill
+                sizes="120px"
+                className="object-contain"
+                priority
+              />
+            </div>
           </div>
-          <input
-            className="border p-2 w-full rounded"
-            value={answers.studentName || ""}
-            onChange={(e) => setAns("studentName", e.target.value)}
-            required
-          />
         </div>
 
-        {/* 2) קבוצה בחממה (חובה) */}
-        <div className="border rounded p-3 bg-white">
-          <div className="text-sm mb-1">
-            קבוצה בחממה <span className="text-red-600">*</span>
+        <div className="p-5 md:p-6 border-t border-neutral-200">
+          <h1 className="text-2xl font-semibold">{form.title || "טופס"}</h1>
+
+          {form.descriptionHtml ? (
+            <div
+              className="prose prose-neutral rtl:text-right max-w-none prose-p:my-2 prose-ul:my-2 prose-ol:my-2 prose-li:my-1 prose-strong:font-semibold prose-h2:text-xl prose-h3:text-lg"
+              style={{ direction: "rtl" }}
+              dangerouslySetInnerHTML={{ __html: form.descriptionHtml }}
+            />
+          ) : null}
+        </div>
+      </div>
+
+      {/* טופס מילוי */}
+      <form onSubmit={onSubmit} className="mt-8 space-y-4">
+        {/* שדות מערכת קבועים */}
+        <div className="rounded-2xl border border-neutral-200 bg-white p-4">
+          <div className="grid gap-4 md:grid-cols-2">
+            <FieldText
+              label="שם החניכ.ה"
+              required
+              value={answers.studentName || ""}
+              onChange={(v) => setAns("studentName", v)}
+              placeholder="שם פרטי ומשפחה"
+            />
+            <FieldSelect
+              label="קבוצה בחממה"
+              required
+              options={GROUPS}
+              value={answers.group || ""}
+              onChange={(v) => setAns("group", v)}
+            />
           </div>
-          <select
-            className="border p-2 w-full rounded"
-            value={answers.group || ""}
-            onChange={(e) => setAns("group", e.target.value)}
-            required
-          >
-            <option value="">בחר/י קבוצה…</option>
-            {GROUPS.map((g) => (
-              <option key={g} value={g}>{g}</option>
-            ))}
-          </select>
         </div>
 
-        {/* שאר השדות מה־schema */}
+        {/* שדות מהסכמה */}
         {schema.map((f) => (
-          <div key={f.id} className="border rounded p-3 bg-white">
-            <div className="text-sm mb-1">
+          <div
+            key={f.id}
+            className="rounded-2xl border border-neutral-200 bg-white p-4"
+          >
+            <div className="text-sm text-neutral-700 mb-2">
               {f.label} {f.required && <span className="text-red-600">*</span>}
             </div>
 
             {f.type === "text" && (
-              <input
-                className="border p-2 w-full rounded"
+              <FieldText
+                label=""
                 value={answers[f.id] || ""}
-                onChange={(e) => setAns(f.id, e.target.value)}
+                onChange={(v) => setAns(f.id, v)}
                 required={f.required}
               />
             )}
 
             {f.type === "textarea" && (
-              <textarea
-                className="border p-2 w-full rounded"
+              <FieldTextarea
+                label=""
                 value={answers[f.id] || ""}
-                onChange={(e) => setAns(f.id, e.target.value)}
+                onChange={(v) => setAns(f.id, v)}
                 required={f.required}
-                rows={4}
               />
             )}
 
             {f.type === "parentName" && (
-              <input
-                className="border p-2 w-full rounded"
+              <FieldText
+                label=""
                 value={answers[f.id] || ""}
-                onChange={(e) => setAns(f.id, e.target.value)}
-                placeholder="שם ההורה"
+                onChange={(v) => setAns(f.id, v)}
                 required={f.required}
+                placeholder="שם ההורה"
               />
             )}
 
             {f.type === "number" && (
-              <input
-                type="number"
-                className="border p-2 w-full rounded"
+              <FieldText
+                label=""
+                inputType="number"
                 value={answers[f.id] ?? ""}
-                onChange={(e) => setAns(f.id, e.target.value)}
+                onChange={(v) => setAns(f.id, v)}
                 required={f.required}
               />
             )}
 
             {f.type === "phone" && (
-              <input
-                type="tel"
-                inputMode="tel"
-                className="border p-2 w-full rounded"
+              <FieldText
+                label=""
+                inputType="tel"
                 value={answers[f.id] || ""}
-                onChange={(e) => setAns(f.id, e.target.value)}
-                placeholder="למשל: 050-1234567"
+                onChange={(v) => setAns(f.id, v)}
                 required={f.required}
+                placeholder="למשל: 050-1234567"
               />
             )}
 
             {f.type === "email" && (
-              <input
-                type="email"
-                className="border p-2 w-full rounded"
+              <FieldText
+                label=""
+                inputType="email"
                 value={answers[f.id] || ""}
-                onChange={(e) => setAns(f.id, e.target.value)}
-                placeholder="name@example.com"
+                onChange={(v) => setAns(f.id, v)}
                 required={f.required}
+                placeholder="name@example.com"
               />
             )}
 
             {f.type === "consent" && (
-              <label className="flex items-start gap-2">
-                <input
-                  type="checkbox"
-                  checked={!!answers[f.id]}
-                  onChange={(e) => setAns(f.id, e.target.checked)}
-                  required={f.required}
-                />
-                <span className="text-sm leading-6">
-                  {f.description || "אני מאשר/ת..."}
-                </span>
-              </label>
+              <FieldConsent
+                description={f.description || "אני מאשר/ת..."}
+                value={!!answers[f.id]}
+                onChange={(v) => setAns(f.id, v)}
+                required={f.required}
+              />
             )}
 
             {f.type === "select" && (
-              <select
-                className="border p-2 w-full rounded"
+              <FieldSelect
+                label=""
+                options={f.options || []}
                 value={answers[f.id] || ""}
-                onChange={(e) => setAns(f.id, e.target.value)}
+                onChange={(v) => setAns(f.id, v)}
                 required={f.required}
-              >
-                <option value="">בחר/י…</option>
-                {(f.options || []).map((opt, i) => (
-                  <option key={i} value={opt}>{opt}</option>
-                ))}
-              </select>
+              />
             )}
 
             {f.type === "radio" && (
-              <div className="flex flex-col gap-1">
-                {(f.options || []).map((opt, i) => (
-                  <label key={i} className="flex items-center gap-2">
-                    <input
-                      type="radio"
-                      name={f.id}
-                      checked={answers[f.id] === opt}
-                      onChange={() => setAns(f.id, opt)}
-                      required={f.required && i === 0 && !answers[f.id]}
-                    />
-                    <span>{opt}</span>
-                  </label>
-                ))}
-              </div>
+              <FieldRadio
+                options={f.options || []}
+                value={answers[f.id] || ""}
+                onChange={(v) => setAns(f.id, v)}
+                required={f.required}
+                name={f.id}
+              />
             )}
 
-            {f.type === "checkbox" && (
-              <div className="flex flex-col gap-1">
-                {(f.options || []).map((opt, i) => {
-                  const checked = Array.isArray(answers[f.id]) && answers[f.id].includes(opt);
-                  return (
-                    <label key={i} className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={(e) => toggleCheckboxArray(f.id, opt, e.target.checked)}
-                      />
-                      <span>{opt}</span>
-                    </label>
-                  );
-                })}
-              </div>
+            {(f.type === "checkbox" || f.type === "checkboxes") && (
+              <FieldCheckboxes
+                options={f.options || []}
+                value={Array.isArray(answers[f.id]) ? answers[f.id] : []}
+                onChange={(arr) => setAns(f.id, arr)}
+              />
             )}
 
             {f.type === "signature" && (
-              <SignaturePad onChange={(dataUrl) => setSignatureDataUrl(dataUrl)} />
+              <div className="space-y-2">
+                <SignaturePad onChange={(dataUrl) => setSignatureDataUrl(dataUrl)} />
+                {f.required && !signatureDataUrl ? (
+                  <div className="text-xs text-neutral-500">
+                    יש למלא חתימה כדי להמשיך
+                  </div>
+                ) : null}
+              </div>
             )}
           </div>
         ))}
 
-        {msg && <div className="text-red-600">{msg}</div>}
+        {msg ? (
+          <div className="rounded-xl border border-red-200 bg-red-50 text-red-800 px-3 py-2 text-sm">
+            {msg}
+          </div>
+        ) : null}
 
-        <button
-          type="submit"
-          className="border p-2 rounded"
-          disabled={sending}
-        >
-          {sending ? "שולח…" : "שלח"}
-        </button>
+        <div className="pt-2">
+          <button
+            type="submit"
+            className="h-11 px-5 rounded-xl bg-sky-600 text-white font-semibold hover:bg-sky-700 disabled:opacity-50"
+            disabled={sending}
+          >
+            {sending ? "שולח…" : "שליחה"}
+          </button>
+        </div>
       </form>
     </main>
+  );
+}
+
+/* ---------- Field components (מעוצבים בקו העיצובי) ---------- */
+
+function FieldText({
+  label,
+  placeholder,
+  required,
+  value,
+  onChange,
+  inputType = "text",
+}: {
+  label?: string;
+  placeholder?: string;
+  required?: boolean;
+  value: string;
+  onChange: (v: string) => void;
+  inputType?: React.HTMLInputTypeAttribute;
+}) {
+  return (
+    <label className="grid gap-1.5">
+      {label ? (
+        <span className="text-sm text-neutral-700">
+          {label} {required ? <span className="text-red-600">*</span> : null}
+        </span>
+      ) : null}
+      <input
+        type={inputType}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        required={required}
+        placeholder={placeholder}
+        className="h-11 rounded-xl border border-neutral-300 px-3 bg-white focus:outline-none focus:ring-2 focus:ring-sky-400"
+      />
+    </label>
+  );
+}
+
+function FieldTextarea({
+  label,
+  placeholder,
+  required,
+  value,
+  onChange,
+}: {
+  label?: string;
+  placeholder?: string;
+  required?: boolean;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <label className="grid gap-1.5">
+      {label ? (
+        <span className="text-sm text-neutral-700">
+          {label} {required ? <span className="text-red-600">*</span> : null}
+        </span>
+      ) : null}
+      <textarea
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        required={required}
+        rows={4}
+        className="rounded-xl border border-neutral-300 px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-sky-400"
+      />
+    </label>
+  );
+}
+
+function FieldSelect({
+  label,
+  required,
+  options = [],
+  value,
+  onChange,
+}: {
+  label?: string;
+  required?: boolean;
+  options?: string[];
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <label className="grid gap-1.5">
+      {label ? (
+        <span className="text-sm text-neutral-700">
+          {label} {required ? <span className="text-red-600">*</span> : null}
+        </span>
+      ) : null}
+      <select
+        value={value || ""}
+        onChange={(e) => onChange(e.target.value)}
+        required={required}
+        className="h-11 rounded-xl border border-neutral-300 px-3 bg-white focus:outline-none focus:ring-2 focus:ring-sky-400"
+      >
+        <option value="" disabled>
+          בחרו…
+        </option>
+        {options.map((o, i) => (
+          <option key={i} value={o}>
+            {o}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function FieldRadio({
+  options = [],
+  value,
+  onChange,
+  required,
+  name,
+}: {
+  options?: string[];
+  value: string;
+  onChange: (v: string) => void;
+  required?: boolean;
+  name: string;
+}) {
+  return (
+    <fieldset className="grid gap-2">
+      <div className="grid gap-2 sm:grid-cols-2">
+        {options.map((o, i) => (
+          <label key={i} className="flex items-center gap-2 text-sm">
+            <input
+              type="radio"
+              name={name}
+              checked={value === o}
+              onChange={() => onChange(o)}
+              required={required && i === 0 && !value}
+              className="accent-sky-600"
+            />
+            <span>{o}</span>
+          </label>
+        ))}
+      </div>
+    </fieldset>
+  );
+}
+
+function FieldCheckboxes({
+  options = [],
+  value = [],
+  onChange,
+}: {
+  options?: string[];
+  value: string[];
+  onChange: (v: string[]) => void;
+}) {
+  function toggle(opt: string, checked: boolean) {
+    const set = new Set(value);
+    if (checked) set.add(opt);
+    else set.delete(opt);
+    onChange(Array.from(set));
+  }
+  return (
+    <div className="grid gap-2 sm:grid-cols-2">
+      {options.map((o, i) => {
+        const checked = value.includes(o);
+        return (
+          <label key={i} className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={checked}
+              onChange={(e) => toggle(o, e.target.checked)}
+              className="accent-sky-600"
+            />
+            <span>{o}</span>
+          </label>
+        );
+      })}
+    </div>
+  );
+}
+
+function FieldConsent({
+  description,
+  required,
+  value,
+  onChange,
+}: {
+  description: string;
+  required?: boolean;
+  value: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <label className="flex items-start gap-2 text-sm">
+      <input
+        type="checkbox"
+        checked={!!value}
+        onChange={(e) => onChange(e.target.checked)}
+        required={required && !value}
+        className="accent-sky-600 mt-1"
+      />
+      <span>
+        {description} {required ? <span className="text-red-600">*</span> : null}
+      </span>
+    </label>
   );
 }
