@@ -11,3 +11,31 @@
     padding-bottom: 20px;
   }
 }
+
+/* תוכן העורך */
+.prosemirror-content {
+  direction: rtl;
+  text-align: right;
+  line-height: 1.8;
+}
+
+/* טיפוגרפיה נקייה */
+.prosemirror-content h2 { font-size: 1.25rem; font-weight: 700; margin: .5rem 0; }
+.prosemirror-content h3 { font-size: 1.125rem; font-weight: 600; margin: .5rem 0; }
+.prosemirror-content p { margin: .25rem 0; }
+.prosemirror-content ul, .prosemirror-content ol { padding-right: 1.25rem; margin: .25rem 0; }
+.prosemirror-content ul { list-style: disc; }
+.prosemirror-content ol { list-style: decimal; }
+.prosemirror-content a { color: #0ea5e9; text-decoration: underline; }
+
+/* placeholder */
+.prosemirror-content .is-editor-empty:first-child::before {
+  color: #9ca3af;
+  content: attr(data-placeholder);
+  float: right;
+  pointer-events: none;
+  height: 0;
+}
+
+/* בחירה/פוקוס */
+.ProseMirror:focus { outline: none; }

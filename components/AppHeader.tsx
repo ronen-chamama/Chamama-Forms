@@ -35,23 +35,23 @@ export default function AppHeader() {
   const display = user?.displayName || user?.email || "משתמש/ת";
 
   return (
-    <header className="sticky top-0 z-50 bg-white/80 backdrop-blur border-b border-neutral-200">
-      <div className="mx-auto max-w-6xl px-4 sm:px-6 h-16 lg:h-20 flex items-center justify-between">
-        {/* ימין: לוגו באנר בתוך קונטיינר עם clamp כך שלא יקטן מתחת ל-64px */}
-        <div className="shrink-0 relative"
-             style={{
-               height: "clamp(64px, 7vw, 88px)",   // מינימום 64px, גדל עד 88px
-               width:  "clamp(200px, 26vw, 340px)" // מינימום 200px, גדל עד 340px
-             }}>
-          <Image
-            src="/branding/logo-banner-color.png"
-            alt="תיכון החממה"
-            fill
-            priority
-            sizes="(max-width: 640px) 240px, (max-width: 1024px) 300px, 340px"
-            className="object-contain"
-          />
-        </div>
+    <header className="sticky top-0 z-50 bg-white/80 backdrop-blur border-b border-neutral-200" dir="rtl">
+      {/* אותו container כמו העמודים */}
+      <div className="mx-auto max-w-7xl px-6 sm:px-8 w-full h-16 lg:h-20 flex items-center justify-between">
+        {/* ימין: לוגו – בלי fill, כבלוק, צמוד לקצה הימני */}
+        <div className="shrink-0">
+  <Image
+    src="/branding/logo-banner-color.png"
+    alt="תיכון החממה"
+    width={340}
+    height={88}
+    priority
+    className="block h-auto"
+    // ↓ בערך חצי מהמקדמים הקודמים
+    style={{ width: "clamp(100px, 13vw, 170px)" }}
+    sizes="(max-width: 640px) 120px, (max-width: 1024px) 150px, 170px"
+  />
+</div>
 
         {/* שמאל: תפריט משתמש */}
         <div className="relative" ref={menuRef}>
@@ -72,6 +72,7 @@ export default function AppHeader() {
             <div
               role="menu"
               className="absolute left-0 mt-2 w-44 rounded-xl border border-neutral-200 bg-white shadow-lg overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
             >
               <button
                 role="menuitem"

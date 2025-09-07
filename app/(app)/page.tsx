@@ -2,301 +2,283 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { auth } from "@/lib/firebaseClient";
 import { onAuthStateChanged, User } from "firebase/auth";
 import {
-  collection,
-  doc,
   getFirestore,
-  onSnapshot,
-  orderBy,
+  collection,
+  getDocs,
+  doc,
+  setDoc,
+  deleteDoc,
   query,
   where,
-  deleteDoc,
 } from "firebase/firestore";
 
-type ChamamaForm = {
+type FormListItem = {
   id: string;
   title: string;
+  submissionCount?: number;
   publicId?: string;
-  stats?: { submissionCount?: number };
-  createdAt?: any;
+  updatedAt?: number;
 };
 
-export default function AppHomePage() {
+export default function MyFormsPage() {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
-  const [forms, setForms] = useState<ChamamaForm[] | null>(null);
+  const [forms, setForms] = useState<FormListItem[]>([]);
+  const [loading, setLoading] = useState(true);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, setUser);
     return () => unsub();
   }, []);
 
+  const db = useMemo(() => getFirestore(), []);
+
+  // ESC סוגר תפריטים/דיאלוגים
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setOpenMenuId(null);
+        setConfirmDeleteId(null);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  // טעינה
   useEffect(() => {
     if (!user) return;
-    const db = getFirestore();
+    (async () => {
+      setLoading(true);
 
-    const q1 = query(
-      collection(db, "forms"),
-      where("ownerUid", "==", user.uid),
-      orderBy("createdAt", "desc")
-    );
+      const col1 = collection(db, "users", user.uid, "forms");
+      const snap1 = await getDocs(col1);
+      const list1 = snap1.docs.map((d) => ({
+        id: d.id,
+        title: (d.data() as any).title || "ללא כותרת",
+        submissionCount: (d.data() as any).submissionCount || 0,
+        publicId: (d.data() as any).publicId,
+        updatedAt: (d.data() as any).updatedAt,
+      })) as FormListItem[];
 
-    const unsub1 = onSnapshot(q1, (snap) => {
-      if (!snap.empty) {
-        setForms(snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })));
-      } else {
-        const q2 = query(
-          collection(db, "users", user.uid, "forms"),
-          orderBy("createdAt", "desc")
-        );
-        const unsub2 = onSnapshot(q2, (snap2) => {
-          setForms(snap2.empty ? [] : snap2.docs.map((d) => ({ id: d.id, ...(d.data() as any) })));
-        });
-        return unsub2;
-      }
-    });
+      const col2 = collection(db, "forms");
+      const q2 = query(col2, where("ownerUid", "==", user.uid));
+      const snap2 = await getDocs(q2);
+      const list2 = snap2.docs.map((d) => ({
+        id: d.id,
+        title: (d.data() as any).title || "ללא כותרת",
+        submissionCount: (d.data() as any).submissionCount || 0,
+        publicId: (d.data() as any).publicId,
+        updatedAt: (d.data() as any).updatedAt,
+      })) as FormListItem[];
 
-    return () => unsub1();
-  }, [user]);
+      const map = new Map<string, FormListItem>();
+      [...list1, ...list2].forEach((f) => map.set(f.id, f));
+      const list = Array.from(map.values()).sort(
+        (a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)
+      );
 
-  const origin = useMemo(() => (typeof window === "undefined" ? "" : window.location.origin), []);
-  const formFillUrl = (f: ChamamaForm) => `${origin}/f/${f.publicId || f.id}`;
+      setForms(list);
+      setLoading(false);
+    })();
+  }, [db, user]);
 
-  async function copyFillLink(f: ChamamaForm) {
-    try {
-      await navigator.clipboard.writeText(formFillUrl(f));
-    } finally {
-      setOpenMenuId(null); // סוגר את התפריט אחרי העתקה
-    }
+  function newId() {
+    return typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : Math.random().toString(36).slice(2);
   }
 
-  function editForm(f: ChamamaForm) {
-    router.push(`/forms/${f.id}/edit`); // נתיב מוחלט
+  async function createNewForm() {
+    if (!user) return;
+    const id = newId();
+    const payload = {
+      title: "ללא כותרת",
+      description: "",
+      fields: [],
+      formFields: [],
+      items: [],
+      schema: [],
+      ownerUid: user.uid,
+      createdAt: new Date(),
+      updatedAt: Date.now(),
+      publicId: id,
+    };
+    await setDoc(doc(db, "forms", id), payload, { merge: true });
+    await setDoc(doc(db, "users", user.uid, "forms", id), payload, { merge: true });
+    router.push(`/forms/${id}/edit`);
   }
 
-  async function deleteForm(f: ChamamaForm) {
-    const db = getFirestore();
-    try {
-      await deleteDoc(doc(db, "forms", f.id));
-    } catch {
-      if (user) await deleteDoc(doc(db, "users", user.uid, "forms", f.id));
-    }
+  async function deleteForm(id: string) {
+    if (!user) return;
+    await deleteDoc(doc(db, "forms", id)).catch(() => {});
+    await deleteDoc(doc(db, "users", user.uid, "forms", id)).catch(() => {});
+    setForms((prev) => prev.filter((f) => f.id !== id));
+    setConfirmDeleteId(null);
     setOpenMenuId(null);
   }
 
   return (
-    <main className="mx-auto max-w-7xl px-6 sm:px-8 py-8">
-      <div className="grid grid-cols-1 gap-6 md:[grid-template-columns:320px_minmax(0,1fr)]">
-        {/* סיידבר (ימין) */}
-        <aside className="md:pt-4">
-          <div className="sticky top-24 space-y-4">
-            {/* שימוש ב-<Link> עם href מוחלט */}
-            <Link
-              href="/forms/new"
-              prefetch={false}
-              className="w-full h-12 rounded-2xl bg-sky-600 text-white text-base font-semibold shadow-sm hover:bg-sky-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-sky-500 grid place-items-center"
+    <main className="mx-auto max-w-7xl px-6 sm:px-8 py-8" dir="rtl">
+      <h1 className="text-2xl font-semibold text-center">הטפסים שלי</h1>
+
+      <div className="mt-8 grid grid-cols-1 gap-8 md:[grid-template-columns:260px_minmax(0,1fr)]">
+        <aside>
+          <div className="rounded-2xl border border-neutral-200 bg-white p-4">
+            <button
+              onClick={createNewForm}
+              className="w-full h-11 rounded-xl bg-sky-600 text-white font-medium hover:bg-sky-700"
             >
               טופס חדש
-            </Link>
-
-            <div className="rounded-2xl border border-neutral-200 bg-white p-4 text-sm text-neutral-600">
-              כאן נוסיף מסננים/תיוגים (בקרוב).
+            </button>
+            <div className="mt-4 text-sm text-neutral-600">
+              צרו טופס חדש והתחילו להוסיף שדות. ניתן לשתף בקישור.
             </div>
           </div>
         </aside>
 
-        {/* תוכן (שמאל) */}
         <section>
-          <div className="mb-6">
-            <h1 className="text-2xl md:text-3xl font-semibold text-center">הטפסים שלי</h1>
-          </div>
-
-          {forms === null ? (
-            <CardsSkeleton />
+          {loading ? (
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div key={i} className="h-44 rounded-2xl border border-neutral-200 bg-neutral-50 animate-pulse" />
+              ))}
+            </div>
           ) : forms.length === 0 ? (
-            <div className="text-neutral-600 text-sm border border-dashed border-neutral-300 rounded-2xl p-10 text-center">
-              אין עדיין טפסים. לחצו על “טופס חדש” כדי להתחיל.
+            <div className="rounded-2xl border border-dashed border-neutral-300 p-8 text-center text-neutral-600">
+              עדיין אין טפסים. לחצו “טופס חדש”.
             </div>
           ) : (
-            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-              {forms.map((f) => (
-                <FormCard
-                  key={f.id}
-                  form={f}
-                  open={openMenuId === f.id}
-                  onToggle={() => setOpenMenuId((v) => (v === f.id ? null : f.id))}
-                  onClose={() => setOpenMenuId(null)}
-                  onCopy={() => copyFillLink(f)}
-                  onEdit={() => editForm(f)}
-                  onDelete={() => deleteForm(f)}
-                />
-              ))}
+            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+              {forms.map((form) => {
+                const pubId = (form.publicId && form.publicId.trim()) || form.id;
+                const fillUrl =
+                  typeof window !== "undefined" ? `${window.location.origin}/f/${pubId}` : `/f/${pubId}`;
+
+                const isOpen = openMenuId === form.id;
+
+                return (
+                  <div
+                    key={form.id}
+                    className="group relative rounded-2xl border border-neutral-200 bg-white hover:shadow-md transition-shadow cursor-pointer"
+                    onClick={() => setOpenMenuId((prev) => (prev === form.id ? null : form.id))}
+                  >
+                    <div className="relative overflow-hidden rounded-t-2xl">
+                      <div className="aspect-[16/9] bg-gradient-to-br from-neutral-200 via-neutral-100 to-neutral-200" />
+                      <div className="absolute top-2 left-2 opacity-80">
+                        <div className="relative w-[110px] h-[26px]">
+                          <Image
+                            src="/branding/logo-banner-color.png"
+                            alt=""
+                            fill
+                            sizes="110px"
+                            className="object-contain"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="p-4">
+                      <div className="text-base font-semibold line-clamp-2">
+                        {form.title || "ללא כותרת"}
+                      </div>
+                      <div className="mt-1 text-sm text-neutral-600">
+                        מולאו {form.submissionCount ?? 0} טפסים
+                      </div>
+                    </div>
+
+                    {/* תפריט + קליק-בחוץ + אישור מחיקה קטן */}
+                    {isOpen ? (
+                      <>
+                        {/* BACKDROP גלובלי — לוכד קליקים וסוגר */}
+                        <div
+                          className="fixed inset-0 z-[100]"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setOpenMenuId(null);
+                            setConfirmDeleteId(null);
+                          }}
+                        />
+
+                        {/* תפריט */}
+                        <div
+                          className="absolute z-[110] left-3 top-3 w-48 rounded-xl border border-neutral-200 bg-white shadow-lg"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <button
+                            className="w-full px-3 py-2 text-right hover:bg-neutral-50 text-sm"
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              try { await navigator.clipboard.writeText(fillUrl); } catch {}
+                              setOpenMenuId(null);
+                            }}
+                          >
+                            העתקת קישור למילוי
+                          </button>
+
+                          <Link
+                            href={`/forms/${form.id}/edit`}
+                            className="block px-3 py-2 text-right hover:bg-neutral-50 text-sm"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setOpenMenuId(null);
+                            }}
+                          >
+                            עריכה
+                          </Link>
+
+                          <button
+                            className="w-full px-3 py-2 text-right hover:bg-neutral-50 text-sm text-red-600"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setConfirmDeleteId(form.id);
+                            }}
+                          >
+                            מחיקה
+                          </button>
+                        </div>
+
+                        {/* אישור מחיקה קטן */}
+                        {confirmDeleteId === form.id && (
+                          <div
+                            className="absolute z-[120] left-3 top-28 w-56 rounded-xl border border-neutral-200 bg-white shadow-xl p-3"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <div className="text-sm text-neutral-800">
+                              למחוק את “{form.title || "ללא כותרת"}”?
+                            </div>
+                            <div className="mt-3 flex items-center justify-end gap-2">
+                              <button
+                                className="h-9 px-3 rounded-lg border border-neutral-300 text-sm hover:bg-neutral-50"
+                                onClick={() => setConfirmDeleteId(null)}
+                              >
+                                ביטול
+                              </button>
+                              <button
+                                className="h-9 px-3 rounded-lg bg-red-600 text-white text-sm hover:bg-red-700"
+                                onClick={() => deleteForm(form.id)}
+                              >
+                                מחיקה
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    ) : null}
+                  </div>
+                );
+              })}
             </div>
           )}
         </section>
       </div>
     </main>
-  );
-}
-
-function FormCard({
-  form,
-  open,
-  onToggle,
-  onClose,
-  onCopy,
-  onEdit,
-  onDelete,
-}: {
-  form: ChamamaForm;
-  open: boolean;
-  onToggle: () => void;
-  onClose: () => void;
-  onCopy: () => void;
-  onEdit: () => void;
-  onDelete: () => void;
-}) {
-  const [confirmOpen, setConfirmOpen] = useState(false);
-
-  // אם התפריט נסגר, ודא שסוגרים גם את חלון האישור
-  useEffect(() => {
-    if (!open) setConfirmOpen(false);
-  }, [open]);
-
-  return (
-    // כל הכרטיס לחיץ לפתיחת התפריט
-    <div
-      role="button"
-      tabIndex={0}
-      onClick={onToggle}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          onToggle();
-        }
-      }}
-      className="group relative rounded-2xl border border-neutral-200 bg-white shadow-sm hover:shadow-md transition-shadow focus:outline-none focus:ring-2 focus:ring-sky-400"
-    >
-      {/* תמונת placeholder 16:9 */}
-      <div className="relative overflow-hidden rounded-t-2xl">
-        <div className="aspect-[16/9] bg-gradient-to-br from-neutral-200 via-neutral-100 to-neutral-200" />
-        <div className="absolute top-2 left-2 opacity-80 pointer-events-none">
-          <div className="relative w-[128px] h-[30px]">
-            <Image
-              src="/branding/logo-banner-color.png"
-              alt=""
-              fill
-              sizes="128px"
-              className="object-contain"
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* גוף הכרטיס */}
-      <div className="w-full text-right p-5">
-        <div className="font-medium truncate text-[15px]">{form.title || "ללא כותרת"}</div>
-        <div className="mt-1.5 text-sm text-neutral-500">
-          {(form.stats?.submissionCount ?? 0).toLocaleString("he-IL")} טפסים מולאו
-        </div>
-      </div>
-
-      {/* תפריט נפתח */}
-      {open && (
-        <>
-          <div
-            role="menu"
-            onClick={(e) => e.stopPropagation()} // לא לסגור כשנלחץ בתוך התפריט
-            className="absolute top-3 left-3 z-30 w-52 overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-xl"
-          >
-            <button
-              className="w-full text-right px-3 py-2 text-sm hover:bg-neutral-50"
-              onClick={(e) => {
-                e.stopPropagation();
-                onCopy();
-              }}
-            >
-              העתקת קישור למילוי
-            </button>
-            <button
-              className="w-full text-right px-3 py-2 text-sm hover:bg-neutral-50"
-              onClick={(e) => {
-                e.stopPropagation();
-                onEdit();
-              }}
-            >
-              עריכה
-            </button>
-            <button
-              className="w-full text-right px-3 py-2 text-sm text-red-600 hover:bg-red-50"
-              onClick={(e) => {
-                e.stopPropagation();
-                setConfirmOpen(true); // פותח חלונית אישור מחיקה
-              }}
-            >
-              מחיקה
-            </button>
-          </div>
-
-          {/* חלונית אישור מחיקה — לצד התפריט */}
-          {confirmOpen && (
-            <div
-              onClick={(e) => e.stopPropagation()}
-              className="absolute top-3 z-40 w-60 rounded-xl border border-neutral-200 bg-white shadow-2xl p-3 text-sm"
-              style={{ left: "calc(0.75rem + 13rem + 0.5rem)" }} // 0.75rem (left-3) + 13rem (w-52) + 0.5rem רווח
-            >
-              <div className="font-medium mb-2 truncate">
-                למחוק את “{form.title || "ללא כותרת"}”?
-              </div>
-              <div className="flex items-center justify-end gap-2">
-                <button
-                  className="h-8 px-3 rounded-md border border-neutral-300 hover:bg-neutral-50"
-                  onClick={() => setConfirmOpen(false)}
-                >
-                  ביטול
-                </button>
-                <button
-                  className="h-8 px-3 rounded-md bg-red-600 text-white hover:bg-red-700"
-                  onClick={() => onDelete()}
-                >
-                  מחק
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* שכבת כיסוי — סגירה בלחיצה מחוץ */}
-          <button
-            aria-label="סגור תפריט"
-            className="fixed inset-0 z-20 cursor-default"
-            onClick={onClose}
-          />
-        </>
-      )}
-    </div>
-  );
-}
-
-function CardsSkeleton() {
-  return (
-    <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-      {Array.from({ length: 8 }).map((_, i) => (
-        <div
-          key={i}
-          className="rounded-2xl border border-neutral-200 bg-white shadow-sm overflow-hidden"
-        >
-          <div className="aspect-[16/9] bg-neutral-200 animate-pulse" />
-          <div className="p-5 space-y-3">
-            <div className="h-4 w-4/5 bg-neutral-200 animate-pulse rounded" />
-            <div className="h-3 w-2/5 bg-neutral-200 animate-pulse rounded" />
-          </div>
-        </div>
-      ))}
-    </div>
   );
 }
