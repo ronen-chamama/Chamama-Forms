@@ -4,8 +4,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useParams } from "next/navigation";
-import { auth, db } from "@/lib/firebaseClient";
+import { auth, db, functions } from "@/lib/firebaseClient";
 import { onAuthStateChanged, User } from "firebase/auth";
+import { httpsCallable } from "firebase/functions";
 import { COPY } from "@/lib/copy";
 import {
   collection,
@@ -53,6 +54,7 @@ type FormDoc = {
   createdAt?: any;
   updatedAt?: number;
   submissionCount?: number;
+  heroUrl?: string;
 };
 
 /* ======================= Utils ======================= */
@@ -122,6 +124,7 @@ function buildPayloadForSave(base: FormDoc, user: User | null): any {
     ownerUid,
     submissionCount: base.submissionCount || 0,
     publicId: (base.publicId && base.publicId.trim()) || undefined,
+    heroUrl: base.heroUrl || "",
     createdAt: base.createdAt || new Date(),
     updatedAt: now,
   };
@@ -143,6 +146,10 @@ export default function EditFormPage() {
   const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
   const savedSnapshotRef = useRef<string>(""); // JSON של הטופס שנשמר לאחרונה
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ניטור יצירת תמונת קאבר רק בשמירה ידנית
+  const [generatingHero, setGeneratingHero] = useState(false);
+  const lastGeneratedTitleRef = useRef<string>("");
 
   // גרירה/שחרור
   const [dragKind, setDragKind] = useState<null | { kind: "palette"; ftype: FieldType } | { kind: "reorder"; index: number }>(null);
@@ -187,8 +194,10 @@ export default function EditFormPage() {
             schema: [],
             publicId: id,
             ownerUid: user?.uid,
+            heroUrl: "",
           });
           savedSnapshotRef.current = ""; // טריגר לשמירה עתידית
+          lastGeneratedTitleRef.current = "";
         } else {
           const data = snap.data() as any;
           const formDoc: FormDoc = {
@@ -200,9 +209,13 @@ export default function EditFormPage() {
             createdAt: data.createdAt || new Date(),
             updatedAt: data.updatedAt || Date.now(),
             submissionCount: data.submissionCount || 0,
+            heroUrl: data.heroUrl || "",
           };
           setForm(formDoc);
           savedSnapshotRef.current = JSON.stringify(formDoc);
+          if (formDoc.heroUrl && formDoc.title) {
+            lastGeneratedTitleRef.current = formDoc.title.trim();
+          }
         }
       } finally {
         setLoading(false);
@@ -220,6 +233,8 @@ export default function EditFormPage() {
     const dbi = getFirestore();
     const base = cloneDeep(form);
     const pubId = (base.publicId && base.publicId.trim()) || id;
+    const currentTitle = (base.title || "").trim();
+    const hadHero = !!base.heroUrl;
 
     const payload = buildPayloadForSave({ ...base, publicId: pubId }, user);
 
@@ -242,6 +257,29 @@ export default function EditFormPage() {
       setLastSavedAt(Date.now());
       savedSnapshotRef.current = JSON.stringify({ ...form, publicId: pubId });
       setForm((prev) => (prev ? { ...prev, publicId: pubId } : prev));
+
+      // === יצירת תמונת קאבר רק בשמירה ידנית ===
+      if (!isAuto && currentTitle) {
+        const titleChangedSinceGeneration =
+          currentTitle !== lastGeneratedTitleRef.current;
+
+        if (!hadHero || titleChangedSinceGeneration) {
+          setGeneratingHero(true);
+          try {
+            const gen = httpsCallable(functions, "generateFormHero");
+            const res = await gen({ formId: id, title: currentTitle });
+            const heroUrl = (res.data as any)?.heroUrl;
+            if (heroUrl) {
+              setForm((f) => (f ? { ...f, heroUrl } : f));
+              lastGeneratedTitleRef.current = currentTitle;
+            }
+          } catch (e) {
+            console.warn("hero generation failed", e);
+          } finally {
+            setGeneratingHero(false);
+          }
+        }
+      }
     } finally {
       if (isAuto) setAutoSaving(false);
       else setSaving(false);
@@ -262,6 +300,7 @@ export default function EditFormPage() {
     if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
     debounceTimerRef.current = setTimeout(() => {
       if (savedSnapshotRef.current !== JSON.stringify(form)) {
+        // שמירה אוטומטית בלי יצירת תמונה
         saveForm({ autosave: true });
       }
     }, 1200);
@@ -395,84 +434,87 @@ export default function EditFormPage() {
         </div>
 
         <div className="p-5 md:p-6 border-t border-neutral-200">
-  {/* כותרת ואז תיאור — אחד מעל השני */}
-  <div className="grid gap-4">
-    {/* כותרת הטופס */}
-    <label className="grid gap-1.5">
-      <span className="text-sm text-neutral-700">{COPY.editPage.titleLabel}</span>
-      <input
-        value={form.title}
-        onChange={(e) => setForm((f) => (f ? { ...f, title: e.target.value } : f))}
-        className="h-11 rounded-xl border border-neutral-300 px-3 bg-white focus:outline-none focus:ring-2 focus:ring-sky-400"
-        placeholder={COPY.editPage.titlePlaceholder}
-      />
-    </label>
+          {/* כותרת ואז תיאור — אחד מעל השני */}
+          <div className="grid gap-4">
+            {/* כותרת הטופס */}
+            <label className="grid gap-1.5">
+              <span className="text-sm text-neutral-700">{COPY.editPage.titleLabel}</span>
+              <input
+                value={form.title}
+                onChange={(e) => setForm((f) => (f ? { ...f, title: e.target.value } : f))}
+                className="h-11 rounded-xl border border-neutral-300 px-3 bg-white focus:outline-none focus:ring-2 focus:ring-sky-400"
+                placeholder={COPY.editPage.titlePlaceholder}
+              />
+            </label>
 
-    {/* תיאור הטופס */}
-    <div className="grid gap-1.5">
-      <span className="text-sm text-neutral-700">{COPY.editPage.descLabel}</span>
-      <RichTextEditor
-        value={form.description || ""}
-        onChange={(html) => setForm((f) => (f ? { ...f, description: html } : f))}
-        placeholder={COPY.editPage.descPlaceholder}
-      />
-    </div>
-  </div>
+            {/* תיאור הטופס */}
+            <div className="grid gap-1.5">
+              <span className="text-sm text-neutral-700">{COPY.editPage.descLabel}</span>
+              <RichTextEditor
+                value={form.description || ""}
+                onChange={(html) => setForm((f) => (f ? { ...f, description: html } : f))}
+                placeholder={COPY.editPage.descPlaceholder}
+              />
+            </div>
+          </div>
 
-  {/* כפתורי פעולה */}
-  <div className="mt-3 flex items-center justify-between gap-3">
-    <a
-      href={liveUrl}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="inline-flex items-center gap-1 h-10 px-3 rounded-xl border border-neutral-200 bg-white text-sm hover:bg-neutral-50"
-      title="פתיחת תצוגת הטופס בחלון חדש"
-    >
-      <span aria-hidden>👁️</span>
-      <span>תצוגה</span>
-    </a>
+          {/* כפתורי פעולה */}
+          <div className="mt-3 flex items-center justify-between gap-3">
+            <a
+              href={liveUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 h-10 px-3 rounded-xl border border-neutral-200 bg-white text-sm hover:bg-neutral-50"
+              title="פתיחת תצוגת הטופס בחלון חדש"
+            >
+              <span aria-hidden>👁️</span>
+              <span>תצוגה</span>
+            </a>
 
-    <div className="flex items-center gap-3">
-      <span className="text-xs text-neutral-500 min-w-[8ch] text-center">
-        {saving || autoSaving ? "שומר…" : lastSavedAt ? "נשמר אוטומטית" : ""}
-      </span>
-      <button
-        onClick={() => saveForm({ autosave: false })}
-        disabled={saving}
-        className="h-10 px-5 rounded-xl bg-sky-600 text-white text-sm font-semibold hover:bg-sky-700 disabled:opacity-50"
-      >
-        {saving ? "שומר..." : "שמירה"}
-      </button>
-    </div>
-  </div>
-</div>
-
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-neutral-500 min-w-[8ch] text-center">
+                {saving || autoSaving
+                  ? "שומר…"
+                  : lastSavedAt
+                  ? "נשמר אוטומטית"
+                  : ""}
+              </span>
+              <button
+                onClick={() => saveForm({ autosave: false })}
+                disabled={saving || generatingHero}
+                className="h-10 px-5 rounded-xl bg-sky-600 text-white text-sm font-semibold hover:bg-sky-700 disabled:opacity-50"
+              >
+                {generatingHero ? "יוצר תמונה…" : saving ? "שומר..." : "שמירה"}
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* אזור עריכת השדות */}
       <div className="mt-8 grid grid-cols-1 gap-8 md:[grid-template-columns:300px_minmax(0,1fr)]">
         {/* עמודה ימנית – פלטת רכיבים */}
         <aside className="md:sticky md:top-16 lg:top-25 md:self-start">
-  <div className="rounded-2xl border border-neutral-200 bg-white p-4
+          <div className="rounded-2xl border border-neutral-200 bg-white p-4
                   md:max-h-[calc(100dvh-4rem)] lg:max-h-[calc(100dvh-5rem)] overflow-auto">
-    <h3 className="text-sm font-semibold mb-3">{COPY.editPage.paletteTitle}</h3>
-    <div className="grid gap-2">
-      {(["text","textarea","number","phone","email","select","radio","checkboxes","consent","signature"] as FieldType[]).map((t) => (
-        <div
-          key={t}
-          draggable
-          onDragStart={() => onPaletteDragStart(t)}
-          onDragEnd={clearDrag}
-          onClick={() => addField(t, form.schema.length)}
-          className="cursor-grab active:cursor-grabbing rounded-xl border border-neutral-300 bg-white px-3 py-2 text-sm hover:bg-neutral-50"
-          title={COPY.editPage.emptyDropHintIdle}
-        >
-          {typeLabel(t)}
-        </div>
-      ))}
-    </div>
-  </div>
-</aside>
+            <h3 className="text-sm font-semibold mb-3">{COPY.editPage.paletteTitle}</h3>
+            <div className="grid gap-2">
+              {(["text","textarea","number","phone","email","select","radio","checkboxes","consent","signature"] as FieldType[]).map((t) => (
+                <div
+                  key={t}
+                  draggable
+                  onDragStart={() => onPaletteDragStart(t)}
+                  onDragEnd={clearDrag}
+                  onClick={() => addField(t, form.schema.length)}
+                  className="cursor-grab active:cursor-grabbing rounded-xl border border-neutral-300 bg-white px-3 py-2 text-sm hover:bg-neutral-50"
+                  title={COPY.editPage.emptyDropHintIdle}
+                >
+                  {typeLabel(t)}
+                </div>
+              ))}
+            </div>
+          </div>
+        </aside>
 
         {/* עמודה שמאלית – רשימת שדות + דרופזון */}
         <section>
@@ -490,31 +532,30 @@ export default function EditFormPage() {
               }
             }}
             onDrop={(e) => {
-  e.preventDefault();
+              e.preventDefault();
 
-  // אם הדרופ נעשה בתוך הדרופזון הריק – כבר טופל שם, אל תטפל שוב
-  const insideEmptyDZ = (e.target as HTMLElement)?.closest('[data-dropzone-empty="true"]');
-  if (insideEmptyDZ) {
-    clearDrag();
-    return;
-  }
+              // אם הדרופ נעשה בתוך הדרופזון הריק – כבר טופל שם, אל תטפל שוב
+              const insideEmptyDZ = (e.target as HTMLElement)?.closest('[data-dropzone-empty="true"]');
+              if (insideEmptyDZ) {
+                clearDrag();
+                return;
+              }
 
-  if (!dragKind) return;
+              if (!dragKind) return;
 
-  if (dragKind.kind === "palette") {
-    const idx = overIndex == null ? form.schema.length : overIndex;
-    addField(dragKind.ftype, idx);
-  } else if (dragKind.kind === "reorder") {
-    const from = dragKind.index;
-    let to = overIndex == null ? form.schema.length : overIndex;
-    if (to > from) to = to - 1;
-    if (to < 0) to = 0;
-    if (to > form.schema.length - 1) to = form.schema.length - 1;
-    if (from !== to) moveField(from, to);
-  }
-  clearDrag();
-}}
-
+              if (dragKind.kind === "palette") {
+                const idx = overIndex == null ? form.schema.length : overIndex;
+                addField(dragKind.ftype, idx);
+              } else if (dragKind.kind === "reorder") {
+                const from = dragKind.index;
+                let to = overIndex == null ? form.schema.length : overIndex;
+                if (to > from) to = to - 1;
+                if (to < 0) to = 0;
+                if (to > form.schema.length - 1) to = form.schema.length - 1;
+                if (from !== to) moveField(from, to);
+              }
+              clearDrag();
+            }}
           >
             <h3 className="text-sm font-semibold mb-3">שדות הטופס</h3>
 
@@ -661,15 +702,14 @@ function FieldCard({
           <span className="font-medium text-neutral-800">{typeLabel(field.type)}</span>
         </div>
         <button
-  onClick={(e) => {
-    e.stopPropagation();
-    onRemove();
-  }}
-  className="h-8 px-3 rounded-lg bg-red-500 text-white  text-sm hover:bg-red-600"
->
-  מחיקה
-</button>
-
+          onClick={(e) => {
+            e.stopPropagation();
+            onRemove();
+          }}
+          className="h-8 px-3 rounded-lg bg-red-500 text-white  text-sm hover:bg-red-600"
+        >
+          מחיקה
+        </button>
       </div>
 
       <div className="mt-3 grid gap-3 md:grid-cols-2">

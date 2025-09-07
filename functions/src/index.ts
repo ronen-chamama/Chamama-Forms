@@ -14,6 +14,9 @@ try {
   admin.initializeApp();
 }
 
+
+export { generateFormHero } from "./ai/generateFormHero";
+
 /** ---------- Types ---------- */
 type Field = {
   id: string;

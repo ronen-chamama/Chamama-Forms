@@ -21,22 +21,14 @@ export const storage = getStorage(app);
 export const functions = getFunctions(app, "us-central1");
 
 // חיבור אמולטורים לוקאלית
-const isLocalHost =
-  typeof window !== "undefined" &&
-  /^(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])$/.test(location.hostname);
+const useEmu = process.env.NEXT_PUBLIC_USE_EMU === "true";
 
-if (isLocalHost) {
-  // Auth (שקט בלי אזהרות "שמירת סיסמאות" וכו')
+if (useEmu) {
   try { connectAuthEmulator(auth, "http://127.0.0.1:9099", { disableWarnings: true }); } catch {}
-
-  // Firestore / Storage
   try { connectFirestoreEmulator(db, "127.0.0.1", 8080); } catch {}
   try { connectStorageEmulator(storage, "127.0.0.1", 9199); } catch {}
-
-  // Functions — חשוב: אותו region כמו בפרויקט (שנה אם אתה לא ב-us-central1)
   try {
-    // אם כבר יצרת somewhere const functions = getFunctions(app, "us-central1"), השתמש בו
-    const fns = getFunctions(/* app */ undefined as any, "us-central1");
-    connectFunctionsEmulator(fns, "127.0.0.1", 5001);
+    // עדיף להשתמש באותו instance שיש לך כבר
+    connectFunctionsEmulator(functions, "127.0.0.1", 5001);
   } catch {}
 }
