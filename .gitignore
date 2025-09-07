@@ -24,3 +24,5 @@ node_modules
 
 firebaserun.bat
 firebaserun.ps1
+
+functions/lib/

@@ -14,7 +14,7 @@ export default function SignaturePad({
   const ref = useRef<SignatureCanvas>(null);
 
   function handleEnd() {
-    const data = ref.current?.toDataURL("image/png"); // חייב להחזיר data:image/png;base64,....
+    const data = ref.current?.toDataURL("image/png");                                          
     onChange(data || null);
   }
 

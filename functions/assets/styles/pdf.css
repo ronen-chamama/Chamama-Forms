@@ -1,4 +1,4 @@
-/* בסיס */
+
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
 body {
@@ -9,14 +9,14 @@ body {
   line-height: 1.45;
 }
 
-/* עמוד */
+
 .page {
   width: 210mm;
   min-height: 297mm;
   padding: 20mm 15mm 14mm;
 }
 
-/* הדר */
+
 .header {
   text-align: center;
   margin-bottom: 12mm;
@@ -27,7 +27,7 @@ body {
   display: inline-block;
 }
 
-/* כותרת */
+
 .title {
   font-size: 22pt;
   text-align: center;
@@ -35,7 +35,7 @@ body {
   font-weight: 700;
 }
 
-/* תיאור מהעורך */
+
 .description {
   font-size: 11pt;
   margin: 0 0 10mm 0;
@@ -47,7 +47,7 @@ body {
   margin: 8px 0 6px 0; font-weight: 600;
 }
 
-/* שדות – שתי עמודות */
+
 .rows {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -58,7 +58,7 @@ body {
 .label { font-weight: 600; white-space: nowrap; color: #333; }
 .value { word-break: break-word; white-space: pre-wrap; }
 
-/* חתימה בלי מסגרת */
+
 .signature {
   margin-top: 8mm;
   display: flex;
@@ -68,7 +68,7 @@ body {
 .sig-label { font-weight: 600; }
 .signature img { max-height: 32mm; width: auto; display: block; }
 
-/* פוטר */
+
 .footer {
   border-top: 1px solid #e5e7eb;
   padding-top: 5mm;
@@ -80,7 +80,7 @@ body {
 .footer .school { font-weight: 600; }
 .footer .date { opacity: .8; }
 
-/* הדפסה */
+
 @page {
   size: A4;
   margin: 0;

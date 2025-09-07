@@ -8,7 +8,7 @@ import Link from "@tiptap/extension-link";
 import Placeholder from "@tiptap/extension-placeholder";
 import TextAlign from "@tiptap/extension-text-align";
 
-// משרשר קלאסים ומדלג על false/null/undefined
+                                             
 const cx = (...parts: Array<string | false | null | undefined>) =>
   parts.filter(Boolean).join(" ");
 
@@ -16,7 +16,7 @@ type Props = {
   value: string;                 // HTML
   onChange: (html: string) => void;
   placeholder?: string;
-  className?: string;            // למשל "min-h-[140px]"
+  className?: string;                                   
 };
 
 export default function RichTextEditor({
@@ -28,7 +28,7 @@ export default function RichTextEditor({
   const lastHtmlRef = useRef<string>("");
 
   const editor = useEditor({
-    // חשוב ב-Next כדי למנוע Hydration mismatch
+                                               
     immediatelyRender: false,
     extensions: [
       StarterKit.configure({ heading: { levels: [2, 3, 4] } }),
@@ -60,7 +60,7 @@ export default function RichTextEditor({
     },
   });
 
-  // סנכרון ערך חיצוני אם השתנה
+                               
   useEffect(() => {
     if (!editor) return;
     if (value === lastHtmlRef.current) return;
@@ -73,7 +73,7 @@ export default function RichTextEditor({
 
   return (
     <div className={cx("w-full", className)}>
-      {/* סרגל כלים מינימלי ונקי */}
+      {                            }
       <div className="flex flex-wrap items-center gap-1 border-b border-neutral-200 px-2 py-1.5">
         <MenuButton
           active={editor.isActive("bold")}

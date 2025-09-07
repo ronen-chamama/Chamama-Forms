@@ -42,13 +42,13 @@ type FormField = {
   required?: boolean;
   options?: string[];
   placeholder?: string;
-  description?: string; // ל-consent
+  description?: string;             
 };
 
 type FormDoc = {
   title: string;
-  description?: string; // HTML (מ־RichTextEditor)
-  schema: FormField[];  // הקנוני לעריכה/תצוגה
+  description?: string;                           
+  schema: FormField[];                        
   publicId?: string;
   ownerUid?: string;
   createdAt?: any;
@@ -91,7 +91,7 @@ function typeLabel(t: FieldType) {
 }
 
 function normalizeToSchema(data: any): FormField[] {
-  // העדפה ל-schema; אם אין, נופלים אחורה לשמות הישנים
+                                                      
   if (Array.isArray(data?.schema) && data.schema.length) return data.schema as FormField[];
   if (Array.isArray(data?.fields) && data.fields.length) return data.fields as FormField[];
   if (Array.isArray(data?.formFields) && data.formFields.length) return data.formFields as FormField[];
@@ -103,13 +103,13 @@ function cloneDeep<T>(x: T): T {
   return JSON.parse(JSON.stringify(x));
 }
 
-/** בניית מטען שמירה תואם־לאחור לכל האוספים */
+                                              
 function buildPayloadForSave(base: FormDoc, user: User | null): any {
   const ownerUid = user?.uid || base.ownerUid || "";
   const now = Date.now();
   const schema: FormField[] = Array.isArray(base.schema) ? base.schema : [];
 
-  // התאמות לשדות ישנים לשמירה כפולה (תאימות לאחור)
+                                                   
   const fields = schema;
   const formFields = schema;
   const items = schema;
@@ -136,32 +136,32 @@ export default function EditFormPage() {
   const { id } = useParams<{ id: string }>();
   const [user, setUser] = useState<User | null>(null);
 
-  // מצב הטופס
+              
   const [form, setForm] = useState<FormDoc | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  // שמירה אוטומטית
+                   
   const [autoSaving, setAutoSaving] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
-  const savedSnapshotRef = useRef<string>(""); // JSON של הטופס שנשמר לאחרונה
+  const savedSnapshotRef = useRef<string>("");                               
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // ניטור יצירת תמונת קאבר רק בשמירה ידנית
+                                           
   const [generatingHero, setGeneratingHero] = useState(false);
   const lastGeneratedTitleRef = useRef<string>("");
 
-  // גרירה/שחרור
+                
   const [dragKind, setDragKind] = useState<null | { kind: "palette"; ftype: FieldType } | { kind: "reorder"; index: number }>(null);
   const [overIndex, setOverIndex] = useState<number | null>(null);
 
-  // טעינת משתמש
+                
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, setUser);
     return () => unsub();
   }, []);
 
-  // טעינת טופס: קודם forms/{id}. אם אין—ניסה גם users/{uid}/forms/{id} וגם חיפוש לפי publicId
+                                                                                              
   useEffect(() => {
     (async () => {
       setLoading(true);
@@ -196,7 +196,7 @@ export default function EditFormPage() {
             ownerUid: user?.uid,
             heroUrl: "",
           });
-          savedSnapshotRef.current = ""; // טריגר לשמירה עתידית
+          savedSnapshotRef.current = "";                       
           lastGeneratedTitleRef.current = "";
         } else {
           const data = snap.data() as any;
@@ -242,23 +242,23 @@ export default function EditFormPage() {
     else setSaving(true);
 
     try {
-      // כתיבה ל-forms/{id}
+                           
       await setDoc(doc(dbi, "forms", id), payload, { merge: true });
 
-      // כתיבה ל-users/{uid}/forms/{id}
+                                       
       const uid = user?.uid;
       if (uid) {
         await setDoc(doc(dbi, "users", uid, "forms", id), payload, { merge: true });
       }
 
-      // כתיבה ל-formsPublic/{publicId} (על פי pubId)
+                                                     
       await setDoc(doc(dbi, "formsPublic", pubId), payload, { merge: true });
 
       setLastSavedAt(Date.now());
       savedSnapshotRef.current = JSON.stringify({ ...form, publicId: pubId });
       setForm((prev) => (prev ? { ...prev, publicId: pubId } : prev));
 
-      // === יצירת תמונת קאבר רק בשמירה ידנית ===
+                                                 
       if (!isAuto && currentTitle) {
         const titleChangedSinceGeneration =
           currentTitle !== lastGeneratedTitleRef.current;
@@ -286,7 +286,7 @@ export default function EditFormPage() {
     }
   }
 
-  // Debounce autosave על כל שינוי ב-form
+                                         
   useEffect(() => {
     if (!form) return;
 
@@ -300,7 +300,7 @@ export default function EditFormPage() {
     if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
     debounceTimerRef.current = setTimeout(() => {
       if (savedSnapshotRef.current !== JSON.stringify(form)) {
-        // שמירה אוטומטית בלי יצירת תמונה
+                                         
         saveForm({ autosave: true });
       }
     }, 1200);
@@ -321,7 +321,7 @@ export default function EditFormPage() {
         id: newId(),
         type: ftype,
         label: typeLabel(ftype),
-        required: ftype === "consent" ? true : false, // ברירת מחדל: הסכמה = חובה
+        required: ftype === "consent" ? true : false,                            
         options:
           ftype === "radio" || ftype === "select" || ftype === "checkboxes"
             ? ["אפשרות 1", "אפשרות 2"]
@@ -370,12 +370,12 @@ export default function EditFormPage() {
 
   /* ======================= DnD handlers ======================= */
 
-  // גרירת פריט מהפלטה
+                      
   function onPaletteDragStart(ftype: FieldType) {
     setDragKind({ kind: "palette", ftype });
   }
 
-  // גרירת פריט שכבר קיים בשדות (ללא ידית נפרדת – לחיצה וגרירה על הכרטיס)
+                                                                         
   function onFieldDragStart(index: number) {
     setDragKind({ kind: "reorder", index });
   }
@@ -404,7 +404,7 @@ export default function EditFormPage() {
 
   return (
     <main className="mx-auto max-w-7xl px-6 sm:px-8 py-8" dir="rtl">
-      {/* כפתור חזרה */}
+      {                }
       <div className="mb-4 flex justify-end">
         <Link
           href="/"
@@ -415,7 +415,7 @@ export default function EditFormPage() {
         </Link>
       </div>
 
-      {/* Hero קטן */}
+      {              }
       <div className="rounded-2xl border border-neutral-200 bg-white overflow-hidden">
         <div className="relative">
           <div className="h-40 md:h-56 bg-gradient-to-br from-neutral-200 via-neutral-100 to-neutral-200" />
@@ -434,9 +434,9 @@ export default function EditFormPage() {
         </div>
 
         <div className="p-5 md:p-6 border-t border-neutral-200">
-          {/* כותרת ואז תיאור — אחד מעל השני */}
+          {                                    }
           <div className="grid gap-4">
-            {/* כותרת הטופס */}
+            {                 }
             <label className="grid gap-1.5">
               <span className="text-sm text-neutral-700">{COPY.editPage.titleLabel}</span>
               <input
@@ -447,7 +447,7 @@ export default function EditFormPage() {
               />
             </label>
 
-            {/* תיאור הטופס */}
+            {                 }
             <div className="grid gap-1.5">
               <span className="text-sm text-neutral-700">{COPY.editPage.descLabel}</span>
               <RichTextEditor
@@ -458,7 +458,7 @@ export default function EditFormPage() {
             </div>
           </div>
 
-          {/* כפתורי פעולה */}
+          {                  }
           <div className="mt-3 flex items-center justify-between gap-3">
             <a
               href={liveUrl}
@@ -491,9 +491,9 @@ export default function EditFormPage() {
         </div>
       </div>
 
-      {/* אזור עריכת השדות */}
+      {                      }
       <div className="mt-8 grid grid-cols-1 gap-8 md:[grid-template-columns:300px_minmax(0,1fr)]">
-        {/* עמודה ימנית – פלטת רכיבים */}
+        {                               }
         <aside className="md:sticky md:top-16 lg:top-25 md:self-start">
           <div className="rounded-2xl border border-neutral-200 bg-white p-4
                   md:max-h-[calc(100dvh-4rem)] lg:max-h-[calc(100dvh-5rem)] overflow-auto">
@@ -516,17 +516,17 @@ export default function EditFormPage() {
           </div>
         </aside>
 
-        {/* עמודה שמאלית – רשימת שדות + דרופזון */}
+        {                                         }
         <section>
           <div
             className="rounded-2xl border border-neutral-200 bg-white p-4"
             onDragOver={(e) => {
               e.preventDefault();
-              // אם אין שדות עדיין – ההכנסה תהיה בתחילת המערך (0)
+                                                                 
               if (form.schema.length === 0) setOverIndex(0);
             }}
             onDragLeave={(e) => {
-              // אם יוצאים מחוץ לאזור כולו
+                                          
               if (!(e.currentTarget as HTMLElement).contains(e.relatedTarget as Node)) {
                 setOverIndex(null);
               }
@@ -534,7 +534,7 @@ export default function EditFormPage() {
             onDrop={(e) => {
               e.preventDefault();
 
-              // אם הדרופ נעשה בתוך הדרופזון הריק – כבר טופל שם, אל תטפל שוב
+                                                                            
               const insideEmptyDZ = (e.target as HTMLElement)?.closest('[data-dropzone-empty="true"]');
               if (insideEmptyDZ) {
                 clearDrag();
@@ -559,7 +559,7 @@ export default function EditFormPage() {
           >
             <h3 className="text-sm font-semibold mb-3">שדות הטופס</h3>
 
-            {/* דרופ־זון ריקה כשאין שדות */}
+            {                              }
             {form.schema.length === 0 ? (
               <EmptyDropZone
                 active={overIndex === 0}
@@ -575,7 +575,7 @@ export default function EditFormPage() {
               <div className="grid gap-4">
                 {form.schema.map((field, index) => (
                   <div key={field.id}>
-                    {/* אינדיקציית הכנסת פריט מעל הכרטיס */}
+                    {                                      }
                     {overIndex === index && (
                       <InsertMarker />
                     )}
@@ -591,7 +591,7 @@ export default function EditFormPage() {
                       onDragOverBottom={() => setOverIndex(index + 1)}
                     />
 
-                    {/* אינדיקציית הכנסת פריט בסוף הרשימה */}
+                    {                                       }
                     {index === form.schema.length - 1 && overIndex === form.schema.length && (
                       <InsertMarker />
                     )}
@@ -630,17 +630,17 @@ function EmptyDropZone({
       ].join(" ")}
       onDragEnter={(e) => {
         e.preventDefault();
-        e.stopPropagation();   // ← מונע בועה לקונטיינר
+        e.stopPropagation();                           
         onDragEnter();
       }}
       onDragOver={(e) => {
         e.preventDefault();
-        e.stopPropagation();   // ← מונע בועה לקונטיינר
+        e.stopPropagation();                           
         onDragOver();
       }}
       onDrop={(e) => {
         e.preventDefault();
-        e.stopPropagation();   // ← מונע כפילות drop
+        e.stopPropagation();                        
         onDrop();
       }}
     >
@@ -684,7 +684,7 @@ function FieldCard({
       draggable
       onDragStart={(e) => {
         onDragStart();
-        // כדי לאפשר עיגון־גרירה על כל הכרטיס
+                                             
         if (e.dataTransfer) e.dataTransfer.setData("text/plain", String(index));
       }}
       onDragEnd={onDragEnd}
@@ -734,7 +734,7 @@ function FieldCard({
         </label>
       </div>
 
-      {/* placeholder לאופציה/תיאור לפי סוג */}
+      {                                       }
       {field.type === "consent" && (
         <label className="mt-3 grid gap-1.5">
           <span className="text-sm text-neutral-700">תיאור ההסכמה</span>

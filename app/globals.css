@@ -3,23 +3,23 @@
 @layer base {
   html { direction: rtl; }
    body:has(#firebase-emulator-warning) {
-    padding-bottom: 56px; /* גובה משוער של הבאנר; התאם אם צריך */
+    padding-bottom: 56px; 
   }
 
-  /* להזיז מעט את תוכן הפוטר למעלה כדי שלא יתכסו הטקסטים */
+  
   body:has(#firebase-emulator-warning) footer {
     padding-bottom: 20px;
   }
 }
 
-/* תוכן העורך */
+
 .prosemirror-content {
   direction: rtl;
   text-align: right;
   line-height: 1.8;
 }
 
-/* טיפוגרפיה נקייה */
+
 .prosemirror-content h2 { font-size: 1.25rem; font-weight: 700; margin: .5rem 0; }
 .prosemirror-content h3 { font-size: 1.125rem; font-weight: 600; margin: .5rem 0; }
 .prosemirror-content p { margin: .25rem 0; }
@@ -37,5 +37,5 @@
   height: 0;
 }
 
-/* בחירה/פוקוס */
+
 .ProseMirror:focus { outline: none; }

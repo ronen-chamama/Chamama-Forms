@@ -50,11 +50,11 @@ function formatDate(d?: Date | null) {
   }
 }
 
-// הופך ערך גולמי לייצוג קריא לפי סוג שדה
+                                         
 function prettyValue(field: Field | undefined, value: any): string {
   if (value == null) return "";
   if (!field) {
-    // אם אין לנו מידע על השדה (למקרה קצה) – החזר טקסט
+                                                      
     if (Array.isArray(value)) return value.join(", ");
     return typeof value === "object" ? JSON.stringify(value) : String(value);
   }
@@ -63,7 +63,7 @@ function prettyValue(field: Field | undefined, value: any): string {
     case "checkbox":
       return Array.isArray(value) ? value.join(", ") : String(value);
     case "richtext":
-      // הפשטה קצרה של HTML → טקסט
+                                  
       return String(value).replace(/<[^>]+>/g, "").trim();
     default:
       return Array.isArray(value) ? value.join(", ") : String(value);
@@ -79,7 +79,7 @@ export default function SubmissionsPage() {
   const [filter, setFilter] = useState("");
   const [selected, setSelected] = useState<Submission | null>(null);
 
-  // התחברות חובה
+                 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (u) => {
       if (!u) location.href = "/login";
@@ -88,19 +88,19 @@ export default function SubmissionsPage() {
     return () => unsub();
   }, []);
 
-  // טען את ה-schema של הטופס + ההגשות
+                                      
   useEffect(() => {
     if (!uid) return;
     (async () => {
       setLoading(true);
       try {
-        // 1) טען טופס (לצורך schema → id→label)
+                                                
         const f = await getDoc(doc(db, "forms", formId));
         const data = f.data() as any;
         const formSchema: Field[] = (data?.schema || []) as Field[];
         setSchema(formSchema);
 
-        // 2) טען הגשות
+                       
         const q = query(
           collection(db, "forms", formId, "submissions"),
           orderBy("submittedAt", "desc")
@@ -117,14 +117,14 @@ export default function SubmissionsPage() {
     })();
   }, [uid, formId]);
 
-  // מיפוי מהיר של fieldId → Field (לשימוש בהצגה)
+                                                 
   const fieldById = useMemo(() => {
     const map = new Map<string, Field>();
     schema.forEach((f) => map.set(f.id, f));
     return map;
   }, [schema]);
 
-  // טקסט חיפוש: מחפש בתוך "שם שדה: ערך" מאוחד
+                                              
   const filtered = useMemo(() => {
     if (!filter.trim()) return items;
     const f = filter.trim().toLowerCase();
@@ -151,16 +151,16 @@ async function makePdfFor(submissionId: string) {
     const nextUrl: string = res?.data?.pdfUrl || "";
 const fileName: string = res?.data?.fileName || `submission-${submissionId}.pdf`;
 
-// עדכון השורה בטבלה
+                    
 setItems(prev =>
   prev.map(it => (it.id === submissionId ? { ...it, pdfUrl: nextUrl } : it))
 );
 
-// נסה להוריד מיד (עדיף כשהקריאה מגיעה מלחיצה של המשתמש)
+                                                        
 if (nextUrl) {
   const a = document.createElement("a");
   a.href = nextUrl;
-  a.download = fileName;                  // יעבוד ברוב הדפדפנים; השם יילקח מה-Content-Disposition אם הדפדפן מתעלם
+  a.download = fileName;                                                                                          
   a.rel = "noopener noreferrer";
   document.body.appendChild(a);
   a.click();
@@ -176,11 +176,11 @@ if (nextUrl) {
   }
 }
 
-  // ייצוא CSV: מייצר עמודות לפי ה-schema (Labels) כדי לקבל "שם השדה: הערך"
+                                                                           
   function exportCSV() {
-    // עמודות קבועות
+                    
     const fixedHeaders = ["id", "submittedAt", "status", "signatureUrl", "pdfUrl"];
-    // עמודות דינמיות לפי סדר ה-schema
+                                      
     const dynamicHeaders = schema.map((f) => f.label);
     const header = [...fixedHeaders, ...dynamicHeaders];
 
@@ -286,7 +286,7 @@ if (nextUrl) {
                   {schema.map((f) => {
                     const val = answers[f.id];
                     const pv = prettyValue(f, val);
-                    // אל תציג שדה חתימה מתוך answers (החתימה מוצגת כקישור/תמונה למעלה)
+                                                                                       
                     if (f.type === "signature") return null;
                     return (
                       <div key={f.id} className="border rounded p-2">

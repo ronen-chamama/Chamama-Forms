@@ -58,16 +58,16 @@ const HEADER_JPG     = path.join(ASSETS_DIR, "img", "header.jpg");
 const ALLOW_GOOGLE_ONLY = true;
 
 
-// נירמול אימייל
+                
 function normEmail(email?: string | null): string | null {
   if (!email) return null;
   return email.trim().toLowerCase();
 }
 
-// בדיקת הרשאה מול Firestore: אוסף allowedUsers, מזהה המסמך = כתובת אימייל (באותיות קטנות).
-// אפשר (לא חובה) להחזיק שדה enabled:boolean כדי לנטרל משתמש ברשימה.
+                                                                                           
+                                                                    
 async function isAllowed(email?: string | null): Promise<boolean> {
-  const bypass = process.env.ALLOWLIST_DISABLED === "true"; // לעבודה באמולטור, אם צריך
+  const bypass = process.env.ALLOWLIST_DISABLED === "true";                            
   if (bypass) return true;
 
   const eml = normEmail(email);
@@ -78,16 +78,16 @@ async function isAllowed(email?: string | null): Promise<boolean> {
     return snap.exists && (snap.get("enabled") !== false);
   } catch (err) {
     logger.error("allowlist/isAllowed failed", err);
-    // ברירת מחדל שמרנית: חסימה במקרה של שגיאה
+                                              
     return false;
   }
 }
 
-// אכיפת ספק Google בלבד (רק אם ALLOW_GOOGLE_ONLY=true)
+                                                       
 function assertGoogle(event: any) {
   if (!ALLOW_GOOGLE_ONLY) return;
 
-  // v2: providerData הוא מערך AuthUserInfo[]; לעיתים יש גם credential.providerId
+                                                                                 
   const provs = (event?.data?.providerData ?? []) as Array<{ providerId?: string }>;
   const credProv = (event as any)?.credential?.providerId;
   const hasGoogle =
@@ -253,26 +253,26 @@ function renderPdfHtml(
   const otherRows = schema
   .filter((f: any) => String((f as any).type || "") !== "signature")
   .map((f: any) => {
-    // קרא ערך התשובה לשדה הנוכחי
+                                 
     let v = answers ? answers[f.id] : undefined;
 
-    // טיפוס כשורת טקסט כדי להימנע מהשוואה נגד union צר
+                                                       
     const t = String((f as any).type || "");
 
     if (t === "consent") {
-      // אם מסומן → תציג את טקסט ההסכמה (description או label), אחרת ריק
+                                                                        
       const desc = typeof f.description === "string" ? f.description : undefined;
       const label = typeof f.label === "string" ? f.label : undefined;
       v = v === true ? (desc || label || "הסכמה") : "";
     } else if (t === "checkboxes") {
-      // בחירה מרובה: מערך → מחרוזת עם פסיקים
+                                             
       v = Array.isArray(v) ? v.join(", ") : "";
     } else if (t === "checkbox") {
-      // תיבה בודדת: אם מסומן → מציגים את התווית; אחרת ריק
+                                                          
       const label = typeof f.label === "string" ? f.label : undefined;
       v = v === true ? (label || "מסומן") : "";
     } else {
-      // שדות אחרים
+                   
       if (v == null) v = "";
       if (Array.isArray(v)) v = v.join(", ");
       if (t === "richtext") v = stripHtml(String(v));
@@ -280,7 +280,7 @@ function renderPdfHtml(
 
     v = v == null ? "" : String(v);
 
-    // אם ריק (למשל הסכמה שלא סומנה) – לא מוסיפים שורה
+                                                      
     return v ? rowHtml((f.label || t || String(f.id)) as string, v) : "";
   })
   .filter(Boolean);

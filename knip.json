@@ -1,0 +1,24 @@
+{
+  "$schema": "https://unpkg.com/knip@latest/schema.json",
+  "entry": [
+    "next.config.*",
+    "tailwind.config.*",
+    "postcss.config.*",
+    "middleware.*",
+
+    "app/**/page.{ts,tsx,js,jsx}",
+    "app/**/layout.{ts,tsx,js,jsx}",
+    "app/**/loading.{ts,tsx,js,jsx}",
+    "app/**/error.{ts,tsx,js,jsx}",
+    "app/**/route.{ts,tsx,js,jsx}"
+  ],
+  "ignore": [
+    ".next/**",
+    "out/**",
+    "public/**",
+    "functions/**"     // את ה־functions נריץ בנפרד
+  ],
+  "ignoreDependencies": [
+    // השאר ריק בינתיים; ננקה רק אחרי שהדוח יציב
+  ]
+}

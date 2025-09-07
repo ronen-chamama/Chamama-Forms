@@ -30,7 +30,7 @@ type FieldType =
   | "select"
   | "radio"
   | "checkbox"
-  | "checkboxes" // ← תמיכה גם בשם הזה
+  | "checkboxes"                      
   | "signature"
    | "richtext";
 
@@ -62,7 +62,7 @@ export default function ParentFormPage() {
   const [resolvedFormId, setResolvedFormId] = useState<string>(incomingId);
   const [msg, setMsg] = useState<string>("");
 
-  // תשובות — כולל שני השדות הקבועים מראש
+                                         
   const [answers, setAnswers] = useState<Record<string, any>>({
     studentName: "",
     group: "",
@@ -70,7 +70,7 @@ export default function ParentFormPage() {
   const [signatureDataUrl, setSignatureDataUrl] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
 
-  // טען טופס (מזהה מסמך → publicId)
+                                    
   useEffect(() => {
     (async () => {
       setLoading(true);
@@ -108,7 +108,7 @@ export default function ParentFormPage() {
     })();
   }, [incomingId]);
 
-  // מזהים לשדות מיוחדים (לטלפון/מייל) לטובת ולידציה
+                                                    
   const phoneFieldId = useMemo(
     () => schema.find((f) => f.type === "phone")?.id,
     [schema]
@@ -118,7 +118,7 @@ export default function ParentFormPage() {
     [schema]
   );
 
-  // האם יש שדה חתימה חובה בסכימה
+                                 
   const signatureRequired = useMemo(
     () => schema.some((f) => f.type === "signature" && f.required),
     [schema]
@@ -142,7 +142,7 @@ export default function ParentFormPage() {
     e.preventDefault();
     setMsg("");
 
-    // ולידציה בסיסית
+                     
     if (!answers.studentName?.trim()) return setMsg("נא למלא את שם החניכ.ה");
     if (!answers.group) return setMsg("נא לבחור קבוצה");
 
@@ -157,7 +157,7 @@ export default function ParentFormPage() {
       if (!ok) return setMsg("מספר טלפון לא תקין");
     }
 
-    // חובה: שדות הנדרשים בסכמה (כולל בחירה מרובה)
+                                                  
     const missingRequired = schema
       .filter((f) => f.required)
       .some((f) => {
@@ -166,7 +166,7 @@ export default function ParentFormPage() {
           return !Array.isArray(v) || v.length === 0;
         }
         if (f.type === "consent") return v !== true;
-        if (f.type === "signature") return false; // נבדק בנפרד
+        if (f.type === "signature") return false;              
         return v == null || String(v).trim() === "";
       });
     if (missingRequired) return setMsg("יש למלא את כל השדות המסומנים כחובה");
@@ -220,7 +220,7 @@ export default function ParentFormPage() {
 
   return (
     <main dir="rtl" className="mx-auto max-w-3xl px-6 sm:px-8 py-8">
-      {/* Hero – תואם לעריכת הטופס: פלייסהולדר + לוגו */}
+      {                                                 }
       <div className="rounded-2xl border border-neutral-200 bg-white overflow-hidden">
         <div className="relative">
           <div className="h-40 md:h-56 bg-gradient-to-br from-neutral-200 via-neutral-100 to-neutral-200" />
@@ -251,9 +251,9 @@ export default function ParentFormPage() {
         </div>
       </div>
 
-      {/* טופס מילוי */}
+      {                }
       <form onSubmit={onSubmit} className="mt-8 space-y-4">
-        {/* שדות מערכת קבועים */}
+        {                       }
         <div className="rounded-2xl border border-neutral-200 bg-white p-4">
           <div className="grid gap-4 md:grid-cols-2">
             <FieldText
@@ -273,7 +273,7 @@ export default function ParentFormPage() {
           </div>
         </div>
 
-        {/* שדות מהסכמה */}
+        {                 }
         {schema.map((f) => (
           <div
             key={f.id}
@@ -420,7 +420,7 @@ export default function ParentFormPage() {
   );
 }
 
-/* ---------- Field components (מעוצבים בקו העיצובי) ---------- */
+                                                                  
 
 function FieldText({
   label,

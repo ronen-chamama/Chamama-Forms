@@ -13,7 +13,7 @@ export default function NewFormPage() {
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (user) => {
       if (!user) {
-        // אם לא מחוברים – העבר לכניסה ואז חזור לכאן
+                                                    
         router.replace("/login?next=/app/forms/new");
         return;
       }

@@ -17,10 +17,10 @@ export const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app);
 export const storage = getStorage(app);
-// חשוב: אזור תואם ל-export של הפונקציה
+                                       
 export const functions = getFunctions(app, "us-central1");
 
-// חיבור אמולטורים לוקאלית
+                          
 const useEmu = process.env.NEXT_PUBLIC_USE_EMU === "true";
 
 if (useEmu) {
@@ -28,7 +28,7 @@ if (useEmu) {
   try { connectFirestoreEmulator(db, "127.0.0.1", 8080); } catch {}
   try { connectStorageEmulator(storage, "127.0.0.1", 9199); } catch {}
   try {
-    // עדיף להשתמש באותו instance שיש לך כבר
+                                            
     connectFunctionsEmulator(functions, "127.0.0.1", 5001);
   } catch {}
 }

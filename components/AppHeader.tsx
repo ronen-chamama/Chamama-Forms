@@ -36,9 +36,9 @@ export default function AppHeader() {
 
   return (
     <header className="sticky top-0 z-50 bg-white/80 backdrop-blur border-b border-neutral-200" dir="rtl">
-      {/* אותו container כמו העמודים */}
+      {                                }
       <div className="mx-auto max-w-7xl px-6 sm:px-8 w-full h-16 lg:h-20 flex items-center justify-between">
-        {/* ימין: לוגו – בלי fill, כבלוק, צמוד לקצה הימני */}
+        {                                                   }
         <div className="shrink-0">
   <Image
     src="/branding/logo-banner-color.png"
@@ -47,13 +47,13 @@ export default function AppHeader() {
     height={88}
     priority
     className="block h-auto"
-    // ↓ בערך חצי מהמקדמים הקודמים
+                                  
     style={{ width: "clamp(100px, 13vw, 170px)" }}
     sizes="(max-width: 640px) 120px, (max-width: 1024px) 150px, 170px"
   />
 </div>
 
-        {/* שמאל: תפריט משתמש */}
+        {                       }
         <div className="relative" ref={menuRef}>
           <button
             type="button"

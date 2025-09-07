@@ -25,7 +25,7 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
     return () => unsub();
   }, [router]);
 
-  // בזמן בדיקה/הפניה לא מציגים את התוכן
+                                        
   if (!ready) {
     return (
       <div className="min-h-dvh grid place-items-center bg-neutral-50" dir="rtl">

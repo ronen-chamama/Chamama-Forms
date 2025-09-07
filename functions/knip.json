@@ -1,0 +1,10 @@
+{
+  "$schema": "https://unpkg.com/knip@latest/schema.json",
+  "entry": [
+    "src/index.ts"          // זה ה-entry של הפונקציות
+  ],
+  "ignore": [
+    "lib/**",               // קבצי build JS
+    "node_modules/**"
+  ]
+}

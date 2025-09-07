@@ -43,7 +43,7 @@ export default function MyFormsPage() {
 
   const db = useMemo(() => getFirestore(), []);
 
-  // ESC סוגר תפריטים/דיאלוגים
+                              
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -55,7 +55,7 @@ export default function MyFormsPage() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // טעינת טפסים + ניקוי טפסים ריקים
+                                    
   useEffect(() => {
     if (!user) return;
     (async () => {
@@ -82,14 +82,14 @@ export default function MyFormsPage() {
         updatedAt: (d.data() as any).updatedAt,
       })) as FormListItem[];
 
-      // מאחד כפילויות
+                      
       const map = new Map<string, FormListItem>();
       [...list1, ...list2].forEach((f) => map.set(f.id, f));
       let list = Array.from(map.values()).sort(
         (a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)
       );
 
-      // ניקוי טפסים ריקים (מחיקה מה-DB + הסרה מהרשימה)
+                                                       
       const cleanedIds = await cleanupEmptyForms(db, user.uid, list.map((f) => f.id));
       if (cleanedIds.size > 0) {
         list = list.filter((f) => !cleanedIds.has(f.id));
@@ -149,7 +149,7 @@ export default function MyFormsPage() {
       <h1 className="text-2xl font-semibold text-center">{COPY.formsPage.title}</h1>
 
       <div className="mt-8 grid grid-cols-1 gap-8 md:[grid-template-columns:260px_minmax(0,1fr)]">
-        {/* צד ימין – יצירת טופס */}
+        {                          }
         <aside>
           <div className="rounded-2xl border border-neutral-200 bg-white p-4">
             <button
@@ -164,7 +164,7 @@ export default function MyFormsPage() {
           </div>
         </aside>
 
-        {/* צד שמאל – רשימת טפסים */}
+        {                           }
         <section>
           {loading ? (
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -214,10 +214,10 @@ export default function MyFormsPage() {
                       </div>
                     </div>
 
-                    {/* תפריט + קליק-בחוץ + אישור מחיקה קטן */}
+                    {                                         }
                     {isOpen ? (
                       <>
-                        {/* BACKDROP גלובלי — לוכד קליקים וסוגר */}
+                        {                                         }
                         <div
                           className="fixed inset-0 z-[100]"
                           onClick={(e) => {
@@ -227,7 +227,7 @@ export default function MyFormsPage() {
                           }}
                         />
 
-                        {/* תפריט */}
+                        {           }
                         <div
                           className="absolute z-[110] left-3 top-3 w-48 rounded-xl border border-neutral-200 bg-white shadow-lg"
                           onClick={(e) => e.stopPropagation()}
@@ -265,7 +265,7 @@ export default function MyFormsPage() {
                           </button>
                         </div>
 
-                        {/* אישור מחיקה קטן */}
+                        {                     }
                         {confirmDeleteId === form.id && (
                           <div
                             className="absolute z-[120] left-3 top-28 w-56 rounded-xl border border-neutral-200 bg-white shadow-xl p-3"
@@ -305,16 +305,7 @@ export default function MyFormsPage() {
 
 /* ===================== Helpers ===================== */
 
-/**
- * מוחק טפסים שהם ריקים לגמרי:
- * - כותרת "ללא כותרת" (או ריקה)
- * - אין description/descriptionHtml
- * - אין schema/fields/formFields/items (כולם ריקים או לא קיימים)
- * - אין הגשות (submissionCount לא קיים או 0)
- *
- * מחיקה משלושת הנתיבים: forms/{id}, users/{uid}/forms/{id}, formsPublic/{publicId}
- * מחזיר set של המזהים שנמחקו.
- */
+                                                                                                                                                                                                                                                                                                                                                           
 async function cleanupEmptyForms(
   db: ReturnType<typeof getFirestore>,
   uid: string,
@@ -325,11 +316,11 @@ async function cleanupEmptyForms(
   await Promise.all(
     ids.map(async (id) => {
       try {
-        // קורא תחילה את המסמך הראשי
+                                    
         let snap = await getDoc(doc(db, "forms", id));
         let data: any = snap.exists() ? snap.data() : null;
 
-        // אם אין — נסה מתת-האוסף של המשתמש
+                                           
         if (!data) {
           const userSnap = await getDoc(doc(db, "users", uid, "forms", id));
           data = userSnap.exists() ? userSnap.data() : null;
@@ -366,7 +357,7 @@ async function cleanupEmptyForms(
           cleaned.add(id);
         }
       } catch {
-        // אי-אפשר לנקות? מתעלמים בשקט.
+                                       
       }
     })
   );

@@ -13,19 +13,19 @@ export const generateFormHero = onCall(
       throw new HttpsError("invalid-argument", "formId and title are required");
     }
 
-    // 1) תרגום (אם צריך)
+                         
     const titleEn = await toEnglishIfNeeded(title);
 
-    // 2) פרומפט “חכם” קצר ללא טקסט בתמונה
+                                          
     const style =
       "professional minimal school form cover, clean composition, soft vivid colors, vector/flat illustration, no text, high quality";
     const prompt = `${style}. topic: ${titleEn}`.slice(0, 1500);
 
-    // 3) יצירת תמונה
+                     
     const b64 = await generateFluxImageBase64(prompt, 6);
     const buffer = Buffer.from(b64, "base64");
 
-    // 4) העלאה ל-Storage
+                         
     const bucket = admin.storage().bucket();
     const filePath = `forms/${formId}/hero-${Date.now()}.jpg`;
 
@@ -45,7 +45,7 @@ export const generateFormHero = onCall(
       filePath
     )}?alt=media&token=${token}`;
 
-    // 5) עדכון הטופס
+                     
     await admin.firestore().collection("forms").doc(formId).set(
       { heroUrl, updatedAt: Date.now() },
       { merge: true }
