@@ -1,114 +1,219 @@
 "use client";
 
-import { useEffect, useRef } from "react";
-import "quill/dist/quill.snow.css";
+import React, { useEffect, useRef } from "react";
+import { EditorContent, useEditor } from "@tiptap/react";
+import StarterKit from "@tiptap/starter-kit";
+import Underline from "@tiptap/extension-underline";
+import Link from "@tiptap/extension-link";
+import Placeholder from "@tiptap/extension-placeholder";
+import TextAlign from "@tiptap/extension-text-align";
 
+// משרשר קלאסים ומדלג על false/null/undefined
+const cx = (...parts: Array<string | false | null | undefined>) =>
+  parts.filter(Boolean).join(" ");
 
 type Props = {
-  value: string;
+  value: string;                 // HTML
   onChange: (html: string) => void;
   placeholder?: string;
+  className?: string;            // למשל "min-h-[140px]"
 };
 
-export default function RichTextEditor({ value, onChange, placeholder }: Props) {
-  const hostRef = useRef<HTMLDivElement | null>(null);
-  const quillRef = useRef<any>(null);
+export default function RichTextEditor({
+  value,
+  onChange,
+  placeholder = "כתבו כאן טקסט…",
+  className,
+}: Props) {
+  const lastHtmlRef = useRef<string>("");
 
-  // אתחול Quill חד-פעמי (רק בצד לקוח)
+  const editor = useEditor({
+    // חשוב ב-Next כדי למנוע Hydration mismatch
+    immediatelyRender: false,
+    extensions: [
+      StarterKit.configure({ heading: { levels: [2, 3, 4] } }),
+      Underline,
+      Link.configure({
+        openOnClick: false,
+        autolink: true,
+        protocols: ["http", "https", "mailto"],
+        HTMLAttributes: { rel: "noopener noreferrer nofollow" },
+      }),
+      TextAlign.configure({
+        types: ["heading", "paragraph"],
+        alignments: ["right", "left", "center", "justify"],
+        defaultAlignment: "right",
+      }),
+      Placeholder.configure({ placeholder }),
+    ],
+    content: value || "",
+    onUpdate: ({ editor }) => {
+      const html = editor.getHTML();
+      lastHtmlRef.current = html;
+      onChange(html);
+    },
+    editorProps: {
+      attributes: {
+        dir: "rtl",
+        class: "prosemirror-content p-3 md:p-4 outline-none",
+      },
+    },
+  });
+
+  // סנכרון ערך חיצוני אם השתנה
   useEffect(() => {
-    let mounted = true;
+    if (!editor) return;
+    if (value === lastHtmlRef.current) return;
+    editor.commands.setContent(value || "", false);
+  }, [value, editor]);
 
-    (async () => {
-      // תמיכה גם אם המודול מחזיר default וגם אם לא
-      const mod: any = await import("quill");
-      const Quill = mod?.default ?? mod;
-      if (!mounted || !hostRef.current || quillRef.current) return;
+  if (!editor) {
+    return <div className={cx("prosemirror-content p-3 md:p-4", className)} />;
+  }
 
-      const modules = {
-        toolbar: [
-          [{ header: [1, 2, 3, false] }],
-          ["bold", "italic", "underline", "strike"],
-          [{ list: "ordered" }, { list: "bullet" }],
-          [{ align: [] }, { direction: "rtl" }],
-          ["link"],
-          ["clean"],
-        ],
-        clipboard: { matchVisual: false },
-      };
-
-      const formats = [
-        "header",
-        "bold",
-        "italic",
-        "underline",
-        "strike",
-        "list",
-        "bullet",
-        "align",
-        "direction",
-        "link",
-      ];
-
-      const q = new Quill(hostRef.current, {
-        theme: "snow",
-        modules,
-        formats,
-        placeholder,
-      });
-
-      quillRef.current = q;
-
-      // RTL + עברית
-      q.root.setAttribute("dir", "rtl");
-      q.root.setAttribute("lang", "he");
-
-      // ערך התחלתי
-      if (value) {
-        q.clipboard.dangerouslyPasteHTML(value);
-      }
-
-      // שינויי טקסט → onChange
-      const handler = () => onChange(q.root.innerHTML);
-      q.on("text-change", handler);
-
-      // ניקוי מאזינים ביציאה
-      return () => {
-        try { q.off("text-change", handler); } catch {}
-      };
-    })();
-
-    return () => {
-      mounted = false;
-      quillRef.current = null;
-    };
-  }, []); // לאתחל פעם אחת
-
-  // סינכרון ערך חיצוני → עורך, בלי למחוק בחירה
-  useEffect(() => {
-    const q = quillRef.current;
-    if (!q || typeof value !== "string") return;
-
-    const current = q.root.innerHTML;
-    if (current === value) return;
-
-    const sel = q.getSelection();
-    q.clipboard.dangerouslyPasteHTML(value || "");
-    if (sel) q.setSelection(sel);
-  }, [value]);
-
-  // עטיפה כדי לבודד את ה-CSS של Quill
   return (
-    <div className="quill-wrap border rounded bg-white">
-      <div ref={hostRef} />
-      <style jsx>{`
-        .quill-wrap :global(.ql-container) {
-          min-height: 160px;
-          border-top: 0;
-        }
-        .quill-wrap :global(.ql-toolbar) {
-          border-bottom: 1px solid #e5e7eb; /* tailwind slate-200 */
-        }
-      `}</style>
+    <div className={cx("w-full", className)}>
+      {/* סרגל כלים מינימלי ונקי */}
+      <div className="flex flex-wrap items-center gap-1 border-b border-neutral-200 px-2 py-1.5">
+        <MenuButton
+          active={editor.isActive("bold")}
+          onClick={() => editor.chain().focus().toggleBold().run()}
+          label="מודגש"
+        >
+          B
+        </MenuButton>
+        <MenuButton
+          active={editor.isActive("italic")}
+          onClick={() => editor.chain().focus().toggleItalic().run()}
+          label="נטוי"
+        >
+          <span className="italic">I</span>
+        </MenuButton>
+        <MenuButton
+          active={editor.isActive("underline")}
+          onClick={() => editor.chain().focus().toggleUnderline().run()}
+          label="קו תחתי"
+        >
+          <span className="underline">U</span>
+        </MenuButton>
+
+        <div className="mx-2 h-5 w-px bg-neutral-200" />
+
+        <MenuButton
+          active={editor.isActive("heading", { level: 2 })}
+          onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
+          label="כותרת H2"
+        >
+          H2
+        </MenuButton>
+        <MenuButton
+          active={editor.isActive("heading", { level: 3 })}
+          onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}
+          label="כותרת H3"
+        >
+          H3
+        </MenuButton>
+        <MenuButton
+          active={editor.isActive("bulletList")}
+          onClick={() => editor.chain().focus().toggleBulletList().run()}
+          label="רשימה נקודתית"
+        >
+          • • •
+        </MenuButton>
+        <MenuButton
+          active={editor.isActive("orderedList")}
+          onClick={() => editor.chain().focus().toggleOrderedList().run()}
+          label="רשימה ממוספרת"
+        >
+          1·2·3
+        </MenuButton>
+
+        <div className="mx-2 h-5 w-px bg-neutral-200" />
+
+        <MenuButton
+          onClick={() => {
+            const url = prompt("קישור (URL):", "https://");
+            if (url)
+              editor.chain().focus().extendMarkRange("link").setLink({ href: url }).run();
+          }}
+          label="הוספת קישור"
+        >
+          🔗
+        </MenuButton>
+        <MenuButton
+          active={editor.isActive({ textAlign: "right" })}
+          onClick={() => editor.chain().focus().setTextAlign("right").run()}
+          label="יישור לימין"
+        >
+          ↦
+        </MenuButton>
+        <MenuButton
+          active={editor.isActive({ textAlign: "center" })}
+          onClick={() => editor.chain().focus().setTextAlign("center").run()}
+          label="מרכז"
+        >
+          ↔
+        </MenuButton>
+        <MenuButton
+          active={editor.isActive({ textAlign: "left" })}
+          onClick={() => editor.chain().focus().setTextAlign("left").run()}
+          label="יישור לשמאל"
+        >
+          ↤
+        </MenuButton>
+
+        <div className="mx-2 h-5 w-px bg-neutral-200" />
+
+        <MenuButton
+          onClick={() => editor.chain().focus().undo().run()}
+          disabled={!editor.can().undo()}
+          label="בטל"
+        >
+          ↺
+        </MenuButton>
+        <MenuButton
+          onClick={() => editor.chain().focus().redo().run()}
+          disabled={!editor.can().redo()}
+          label="חזור"
+        >
+          ↻
+        </MenuButton>
+      </div>
+
+      <EditorContent editor={editor} />
     </div>
+  );
+}
+
+/* -------- UI helpers -------- */
+
+function MenuButton({
+  children,
+  onClick,
+  active,
+  disabled,
+  label,
+}: {
+  children: React.ReactNode;
+  onClick: () => void;
+  active?: boolean;
+  disabled?: boolean;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={label}
+      disabled={disabled}
+      className={[
+        "h-8 min-w-8 rounded-md px-2 text-sm",
+        "border border-neutral-200 bg-white hover:bg-neutral-50",
+        active ? "ring-2 ring-sky-400" : "",
+        disabled ? "opacity-40 cursor-not-allowed" : "",
+      ].join(" ")}
+    >
+      {children}
+    </button>
   );
 }

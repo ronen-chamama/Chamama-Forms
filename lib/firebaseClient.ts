@@ -21,9 +21,14 @@ export const storage = getStorage(app);
 export const functions = getFunctions(app, "us-central1");
 
 // חיבור אמולטורים לוקאלית
-if (typeof window !== "undefined" && location.hostname === "localhost") {
-  connectAuthEmulator(auth, "http://127.0.0.1:9099");
-  connectFirestoreEmulator(db, "127.0.0.1", 8080);
-  connectStorageEmulator(storage, "127.0.0.1", 9199);
-  connectFunctionsEmulator(functions, "127.0.0.1", 5001);
+const useEmu = process.env.NEXT_PUBLIC_USE_EMU === "true";
+
+if (useEmu) {
+  try { connectAuthEmulator(auth, "http://127.0.0.1:9099", { disableWarnings: true }); } catch {}
+  try { connectFirestoreEmulator(db, "127.0.0.1", 8080); } catch {}
+  try { connectStorageEmulator(storage, "127.0.0.1", 9199); } catch {}
+  try {
+    // עדיף להשתמש באותו instance שיש לך כבר
+    connectFunctionsEmulator(functions, "127.0.0.1", 5001);
+  } catch {}
 }
