@@ -1,56 +1,43 @@
 // functions/src/ai/generateFormHero.ts
 import * as admin from "firebase-admin";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
-import { generateFluxImageBase64, toEnglishIfNeeded } from "./cf";
+import * as logger from "firebase-functions/logger";
+import { translateIfHebrewToEnglish, generateImageB64FromPrompt } from "./cf";
 
-try { admin.app(); } catch { admin.initializeApp(); }
+if (!admin.apps.length) admin.initializeApp();
 
-export const generateFormHero = onCall(
-  { region: "us-central1", timeoutSeconds: 120, memory: "1GiB" },
-  async (req) => {
-    const { formId, title } = (req.data || {}) as { formId?: string; title?: string };
-    if (!formId || !title) {
-      throw new HttpsError("invalid-argument", "formId and title are required");
-    }
+export const generateFormHero = onCall({ cors: true, region: "us-central1" }, async (req) => {
+  try {
+    const uid = req.auth?.uid;
+    if (!uid) throw new HttpsError("unauthenticated", "Must be signed in.");
 
-    // 1) תרגום (אם צריך)
-    const titleEn = await toEnglishIfNeeded(title);
+    const rawTitle = (req.data?.title ?? "").toString().trim();
+    if (!rawTitle) throw new HttpsError("invalid-argument", "Missing title.");
 
-    // 2) פרומפט “חכם” קצר ללא טקסט בתמונה
-    const style =
-      "professional minimal school form cover, clean composition, soft vivid colors, vector/flat illustration, no text, high quality";
-    const prompt = `${style}. topic: ${titleEn}`.slice(0, 1500);
+    // אם תרצה לא לייצר כששמירה אוטומטית – שלח flag מהקליינט ובדוק כאן (alreadyHandled וכו').
+    const englishTitle = await translateIfHebrewToEnglish(rawTitle);
 
-    // 3) יצירת תמונה
-    const b64 = await generateFluxImageBase64(prompt, 6);
-    const buffer = Buffer.from(b64, "base64");
+    // פרומפט בסיסי — אתה מוזמן לחדד סגנון/צבעוניות
+    const prompt =
+      `Generate a square, colorful, clean cover image for a high-school form titled: "${englishTitle}". ` +
+      `Vector/flat illustration style, friendly, minimal, no text, no watermark. Education theme.`;
 
-    // 4) העלאה ל-Storage
-    const bucket = admin.storage().bucket();
-    const filePath = `forms/${formId}/hero-${Date.now()}.jpg`;
+    const model = process.env.CF_IMAGE_MODEL || "@cf/black-forest-labs/flux-1-schnell";
 
-    const token =
-      (globalThis as any).crypto?.randomUUID?.() || Math.random().toString(36).slice(2);
+    const b64 = await generateImageB64FromPrompt(model, prompt);
 
-    await bucket.file(filePath).save(buffer, {
-      resumable: false,
-      metadata: {
-        contentType: "image/jpeg",
-        cacheControl: "public, max-age=31536000",
-        metadata: { firebaseStorageDownloadTokens: token },
-      },
-    });
-
-    const heroUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(
-      filePath
-    )}?alt=media&token=${token}`;
-
-    // 5) עדכון הטופס
-    await admin.firestore().collection("forms").doc(formId).set(
-      { heroUrl, updatedAt: Date.now() },
-      { merge: true }
-    );
-
-    return { heroUrl };
+    // מחזירים כמה שמות כדי להיות תואמים לקליינט בכל מצב
+    return {
+      image: b64,                           // Base64 ללא prefix
+      imageBase64: b64,                     // אליאס
+      dataUrl: `data:image/png;base64,${b64}`, // נוח לשימוש ישיר בתגית <img>
+      contentType: "image/png",
+      title: rawTitle,
+    };
+  } catch (err: unknown) {
+    logger.error("generateFormHero failed", err);
+    if (err instanceof HttpsError) throw err;
+    const msg = (err as any)?.message ?? "internal error";
+    throw new HttpsError("internal", msg);
   }
-);
+});

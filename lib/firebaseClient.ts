@@ -13,22 +13,24 @@ const firebaseConfig = {
 };
 
 export const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
-
 export const auth = getAuth(app);
 export const db = getFirestore(app);
 export const storage = getStorage(app);
-// חשוב: אזור תואם ל-export של הפונקציה
-export const functions = getFunctions(app, "us-central1");
+export const functions = getFunctions(app, process.env.NEXT_PUBLIC_FUNCTIONS_REGION || "us-central1");
 
-// חיבור אמולטורים לוקאלית
-const useEmu = process.env.NEXT_PUBLIC_USE_EMU === "true";
+/** הפעלת אמולטורים – רק בלוקאל:
+ *  1) NEXT_PUBLIC_USE_EMU=true
+ *  2) והרצה מדפדפן ב־localhost/127.0.0.1
+ */
+const useEmu =
+  process.env.NEXT_PUBLIC_USE_EMU === "true" &&
+  (typeof window === "undefined"
+    ? process.env.NODE_ENV !== "production"
+    : ["localhost", "127.0.0.1"].includes(window.location.hostname));
 
 if (useEmu) {
   try { connectAuthEmulator(auth, "http://127.0.0.1:9099", { disableWarnings: true }); } catch {}
   try { connectFirestoreEmulator(db, "127.0.0.1", 8080); } catch {}
   try { connectStorageEmulator(storage, "127.0.0.1", 9199); } catch {}
-  try {
-    // עדיף להשתמש באותו instance שיש לך כבר
-    connectFunctionsEmulator(functions, "127.0.0.1", 5001);
-  } catch {}
+  try { connectFunctionsEmulator(functions, "127.0.0.1", 5001); } catch {}
 }

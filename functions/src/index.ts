@@ -2,17 +2,17 @@ import * as admin from "firebase-admin";
 import * as functions from "firebase-functions";
 import * as fs from "fs";
 import * as path from "path";
-import puppeteer from "puppeteer";
 import nodemailer from "nodemailer";
 import { beforeUserCreated, beforeUserSignedIn } from "firebase-functions/v2/identity";
 import { HttpsError } from "firebase-functions/v2/https";
 import * as logger from "firebase-functions/logger";
+import chromium from "@sparticuz/chromium";
+import puppeteer, { Browser } from "puppeteer-core";
 
-try {
-  admin.app();
-} catch {
-  admin.initializeApp();
-}
+
+
+
+if (admin.apps.length === 0) admin.initializeApp();
 
 
 export { generateFormHero } from "./ai/generateFormHero";
@@ -67,18 +67,13 @@ function normEmail(email?: string | null): string | null {
 // בדיקת הרשאה מול Firestore: אוסף allowedUsers, מזהה המסמך = כתובת אימייל (באותיות קטנות).
 // אפשר (לא חובה) להחזיק שדה enabled:boolean כדי לנטרל משתמש ברשימה.
 async function isAllowed(email?: string | null): Promise<boolean> {
-  const bypass = process.env.ALLOWLIST_DISABLED === "true"; // לעבודה באמולטור, אם צריך
-  if (bypass) return true;
-
-  const eml = normEmail(email);
-  if (!eml) return false;
-
+  if (!email) return false;
+  const id = email.toLowerCase().trim();
   try {
-    const snap = await admin.firestore().collection("allowedUsers").doc(eml).get();
-    return snap.exists && (snap.get("enabled") !== false);
-  } catch (err) {
-    logger.error("allowlist/isAllowed failed", err);
-    // ברירת מחדל שמרנית: חסימה במקרה של שגיאה
+    const snap = await admin.firestore().doc(`allowedUsers/${id}`).get();
+    return snap.exists;
+  } catch (e) {
+    logger.error("allowlist lookup failed", { email: id, error: (e as Error).message });
     return false;
   }
 }
@@ -98,19 +93,27 @@ function assertGoogle(event: any) {
   }
 }
 
-export const allowlistOnCreate = beforeUserCreated(async (event) => {
-  assertGoogle(event);
-  if (!(await isAllowed(event.data.email))) {
-    throw new HttpsError("permission-denied", "This account is not allowed to sign up.");
+export const allowlistOnCreate = beforeUserCreated(
+  { region: "us-central1" },
+  async (event) => {
+    const ok = await isAllowed(event.data.email ?? null);
+    if (!ok) {
+      throw new HttpsError("permission-denied", "המשתמש אינו מורשה (allowlist).");
+    }
+    return;
   }
-});
+);
 
-export const allowlistOnSignIn = beforeUserSignedIn(async (event) => {
-  assertGoogle(event);
-  if (!(await isAllowed(event.data.email))) {
-    throw new HttpsError("permission-denied", "This account is not allowed to sign in.");
+export const allowlistOnSignIn = beforeUserSignedIn(
+  { region: "us-central1" },
+  async (event) => {
+    const ok = await isAllowed(event.data.email ?? null);
+    if (!ok) {
+      throw new HttpsError("permission-denied", "המשתמש אינו מורשה (allowlist).");
+    }
+    return;
   }
-});
+);
 
 
 /** ---------- Utils ---------- */
@@ -321,11 +324,31 @@ function renderPdfHtml(
 
 /** ---------- PDF maker ---------- */
 async function createPdfBuffer(html: string): Promise<Buffer> {
-  const execPath = puppeteer.executablePath?.();
+  const isEmulator =
+    process.env.FUNCTIONS_EMULATOR === "true" ||
+    process.env.FUNCTIONS_EMULATOR === "1";
+
+  // בענן נשתמש ב-executable של @sparticuz/chromium; בלוקאל אפשר להשאיר undefined
+  const executablePath = isEmulator ? undefined : await chromium.executablePath();
+
   const browser = await puppeteer.launch({
-    executablePath: execPath,
-    args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+    executablePath,
+    // סט דגלים מתאים לענן; בלוקאל מספיק מינ' דגלים
+    args: isEmulator ? ["--no-sandbox", "--disable-setuid-sandbox"] : chromium.args,
+    headless: true,
+    // למנוע שגיאת טיפוסים של Viewport – נגדיר במפורש בלוקאל; בענן ניקח ברירת מחדל של החבילה
+    defaultViewport: isEmulator
+      ? {
+          width: 1280,
+          height: 800,
+          deviceScaleFactor: 1,
+          isMobile: false,
+          isLandscape: false,
+          hasTouch: false
+        }
+      : chromium.defaultViewport
   });
+
   try {
     const page = await browser.newPage();
     await page.setContent(html, { waitUntil: "networkidle0" });
@@ -333,7 +356,7 @@ async function createPdfBuffer(html: string): Promise<Buffer> {
       format: "A4",
       printBackground: true,
       margin: { top: "20mm", bottom: "20mm", left: "15mm", right: "15mm" },
-      preferCSSPageSize: true,
+      preferCSSPageSize: true
     });
     return Buffer.isBuffer(buf) ? buf : Buffer.from(buf);
   } finally {
@@ -341,7 +364,8 @@ async function createPdfBuffer(html: string): Promise<Buffer> {
   }
 }
 
-/** ---------- Mailer ---------- */
+
+/** ---------- Mailer (FIXED) ---------- */
 async function sendMailWithPdf(
   recipients: string[],
   from: string,
@@ -352,15 +376,26 @@ async function sendMailWithPdf(
 ) {
   const { smtp: { host, port, user, pass } } = getConfig();
 
+  // פורט מגיע כ-string ("465") — נמיר למספר ונגדיר secure נכון
+  const portNum = typeof port === "string" ? parseInt(port, 10) : port;
+
   const transporter = nodemailer.createTransport({
-    host, port,
-    secure: port === 465, // 465 = SSL, 587 = STARTTLS
+    host,
+    port: portNum,
+    secure: portNum === 465, // 465 = SSL מלא; 587 = STARTTLS
     auth: { user, pass },
+    connectionTimeout: 20000,
+    greetingTimeout: 15000,
+    socketTimeout: 30000,
+    tls: {
+      servername: host,
+      rejectUnauthorized: true,
+    },
   });
 
   const info = await transporter.sendMail({
     from,
-    to: recipients,
+    to: recipients, // אפשר גם מחרוזת אחת; נשארנו עם מערך
     subject,
     html: bodyHtml,
     attachments: [
@@ -376,28 +411,38 @@ async function sendMailWithPdf(
   return info;
 }
 
-/** ---------- Callable: submitFormToDrive ---------- */
+// ===== submitFormToDrive – (unchanged except recipients normalization) =====
 export const submitFormToDrive = functions
+  .region("us-central1")
   .runWith({ timeoutSeconds: 120, memory: "1GB" })
-  .https.onCall(async (data: SubmitPayload) => {
-    const { formId, publicId, answers, signatureDataUrl } = data || {};
+  .https.onCall(async (data: SubmitPayload, context) => {
     console.log("[submitFormToDrive] args keys:", Object.keys(data || {}));
 
-    if (!answers || typeof answers !== "object") {
-      fail("invalid-argument", "answers are required");
+    // אימות קריאה
+    if (!context.auth) {
+      return fail("unauthenticated", "auth required");
+    }
+    if (!data || typeof data !== "object") {
+      return fail("invalid-argument", "payload required");
     }
 
-    // Load form
+    const { formId, publicId, answers, signatureDataUrl } = data;
+
+    if (!answers || typeof answers !== "object") {
+      return fail("invalid-argument", "answers are required");
+    }
+
+    // טוענים טופס
     const db = admin.firestore();
     const docId = formId || publicId;
-    if (!docId) fail("invalid-argument", "formId or publicId is required");
+    if (!docId) return fail("invalid-argument", "formId or publicId is required");
 
     const formRef = db.doc(`forms/${docId}`);
     const formSnap = await formRef.get();
-    if (!formSnap.exists) fail("not-found", "form not found");
+    if (!formSnap.exists) return fail("not-found", "form not found");
     const form = formSnap.data() || {};
 
-    // Render HTML
+    // רנדר HTML ל-PDF
     const assets = loadAssets();
     const { html, titleText, studentName, groupLabel } = renderPdfHtml(
       form,
@@ -405,19 +450,21 @@ export const submitFormToDrive = functions
       assets
     );
 
-    // Filename
+    // שם קובץ
     const safeTitle   = sanitizeFilename(titleText);
     const safeStudent = sanitizeFilename(studentName || "");
     const safeGroup   = sanitizeFilename(groupLabel || "");
-    const fileName = [safeStudent, safeGroup, safeTitle].filter(Boolean).join("-") + ".pdf";
+    const fileName =
+      [safeStudent, safeGroup, safeTitle].filter(Boolean).join("-") + ".pdf";
+
     console.log("[submitFormToDrive] render done", { title: titleText, fileName });
 
-    // Build PDF
+    // בניית PDF
     const pdfBuffer = await createPdfBuffer(html);
 
-    // Mail
+    // שליחה למייל
     const cfg = getConfig();
-    const recipients = cfg.inbox; // always your inbox
+    const recipients = Array.isArray(cfg.inbox) ? cfg.inbox : [cfg.inbox]; // נוודא מערך
     const from = cfg.smtp.from || cfg.smtp.user;
     const subject = `Chamama Forms – ${titleText}`;
     const bodyHtml = `<div dir="rtl">מצורף PDF חתום לטופס <b>${titleText}</b>.</div>`;
@@ -425,6 +472,5 @@ export const submitFormToDrive = functions
     console.log("[recipients resolved]", recipients);
     await sendMailWithPdf(recipients, from, subject, bodyHtml, fileName, pdfBuffer);
 
-    // No writes to Storage or Firestore
     return { ok: true, fileName, mailedTo: recipients };
   });
