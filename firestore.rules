@@ -4,18 +4,21 @@ service cloud.firestore {
   match /databases/{database}/documents {
     function isSignedIn() { return request.auth != null; }
     function isOwner() {
-      return isSignedIn()
-        && request.auth.uid == resource.data.ownerUid;
+      return isSignedIn() && request.auth.uid == resource.data.ownerUid;
     }
     function creatingAsSelf() {
-      return isSignedIn()
-        && request.resource.data.ownerUid == request.auth.uid;
+      return isSignedIn() && request.resource.data.ownerUid == request.auth.uid;
+    }
+    // דוק שחשוף בקישור ציבורי אם יש עליו publicId לא-ריק
+    function hasPublicLink() {
+      return resource.data.publicId is string && resource.data.publicId.size() > 0;
     }
 
     // טפסים ראשיים
     match /forms/{formId} {
       allow create: if creatingAsSelf();
-      allow read:   if isOwner() || resource.data.isPublic == true;
+      // קריאה: בעלים או כל דוק שיש עליו publicId (קישור ציבורי)
+      allow read: if isOwner() || hasPublicLink();
       allow update, delete: if isOwner();
     }
 

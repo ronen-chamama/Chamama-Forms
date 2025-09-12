@@ -4,7 +4,7 @@ import * as fs from "fs";
 import * as path from "path";
 import nodemailer from "nodemailer";
 import { beforeUserCreated, beforeUserSignedIn } from "firebase-functions/v2/identity";
-import { HttpsError } from "firebase-functions/v2/https";
+import { onCall, HttpsError } from "firebase-functions/v2/https";
 import * as logger from "firebase-functions/logger";
 import chromium from "@sparticuz/chromium";
 import puppeteer, { Browser } from "puppeteer-core";
@@ -418,29 +418,76 @@ export const submitFormToDrive = functions
   .https.onCall(async (data: SubmitPayload, context) => {
     console.log("[submitFormToDrive] args keys:", Object.keys(data || {}));
 
-    // אימות קריאה
-    if (!context.auth) {
-      return fail("unauthenticated", "auth required");
-    }
+    // ולידציית payload בסיסית
     if (!data || typeof data !== "object") {
       return fail("invalid-argument", "payload required");
     }
-
     const { formId, publicId, answers, signatureDataUrl } = data;
 
     if (!answers || typeof answers !== "object") {
       return fail("invalid-argument", "answers are required");
     }
+    if (!formId && !publicId) {
+      return fail("invalid-argument", "formId or publicId is required");
+    }
 
-    // טוענים טופס
+    // טעינת הטופס: קודם formId, אחרת לפי publicId
     const db = admin.firestore();
-    const docId = formId || publicId;
-    if (!docId) return fail("invalid-argument", "formId or publicId is required");
+    let formSnap:
+      | FirebaseFirestore.DocumentSnapshot<FirebaseFirestore.DocumentData>
+      | null = null;
 
-    const formRef = db.doc(`forms/${docId}`);
-    const formSnap = await formRef.get();
-    if (!formSnap.exists) return fail("not-found", "form not found");
-    const form = formSnap.data() || {};
+    if (formId) {
+      formSnap = await db.doc(`forms/${formId}`).get();
+      if (!formSnap.exists) {
+        // ניסיון נפילה-חכמה: אם נשלח גם publicId ננסה למצוא לפיו
+        if (publicId) {
+          const qs = await db
+            .collection("forms")
+            .where("publicId", "==", publicId)
+            .limit(1)
+            .get();
+          if (!qs.empty) formSnap = qs.docs[0];
+        }
+      }
+    } else {
+      const qs = await db
+        .collection("forms")
+        .where("publicId", "==", publicId)
+        .limit(1)
+        .get();
+      if (!qs.empty) formSnap = qs.docs[0];
+    }
+
+    if (!formSnap || !formSnap.exists) {
+      return fail("not-found", "form not found");
+    }
+
+    const form = (formSnap.data() || {}) as {
+      ownerUid?: string;
+      publicId?: string;
+      [k: string]: any;
+    };
+    const resolvedFormId = formSnap.id;
+
+    // הרשאות:
+    // אורח: מותר רק אם קיים publicId על הדוק וה-publicId שנשלח תואם בדיוק
+    const authedUid = context.auth?.uid ?? null;
+    const isOwner = !!(authedUid && form.ownerUid && authedUid === form.ownerUid);
+    const hasPublicLink =
+      typeof form.publicId === "string" && form.publicId.length > 0;
+    const publicMatch = !!(hasPublicLink && publicId && form.publicId === publicId);
+
+    if (!authedUid) {
+      if (!publicMatch) {
+        return fail("permission-denied", "unauthorized (public link required)");
+      }
+    } else {
+      // מחובר: מותר לבעלים, או לכל מי שמחזיק בקישור ציבורי (התאמת publicId)
+      if (!isOwner && !publicMatch) {
+        return fail("permission-denied", "unauthorized");
+      }
+    }
 
     // רנדר HTML ל-PDF
     const assets = loadAssets();
@@ -450,27 +497,43 @@ export const submitFormToDrive = functions
       assets
     );
 
-    // שם קובץ
-    const safeTitle   = sanitizeFilename(titleText);
+    // שם קובץ בטוח
+    const safeTitle = sanitizeFilename(titleText);
     const safeStudent = sanitizeFilename(studentName || "");
-    const safeGroup   = sanitizeFilename(groupLabel || "");
+    const safeGroup = sanitizeFilename(groupLabel || "");
     const fileName =
       [safeStudent, safeGroup, safeTitle].filter(Boolean).join("-") + ".pdf";
 
-    console.log("[submitFormToDrive] render done", { title: titleText, fileName });
+    console.log("[submitFormToDrive] render done", {
+      title: titleText,
+      fileName,
+      formId: resolvedFormId,
+      publicId,
+      hasPublicLink,
+      isOwner,
+      authed: !!authedUid,
+    });
 
     // בניית PDF
     const pdfBuffer = await createPdfBuffer(html);
 
     // שליחה למייל
     const cfg = getConfig();
-    const recipients = Array.isArray(cfg.inbox) ? cfg.inbox : [cfg.inbox]; // נוודא מערך
+    const recipients = Array.isArray(cfg.inbox) ? cfg.inbox : [cfg.inbox];
     const from = cfg.smtp.from || cfg.smtp.user;
     const subject = `Chamama Forms – ${titleText}`;
     const bodyHtml = `<div dir="rtl">מצורף PDF חתום לטופס <b>${titleText}</b>.</div>`;
 
     console.log("[recipients resolved]", recipients);
-    await sendMailWithPdf(recipients, from, subject, bodyHtml, fileName, pdfBuffer);
+    await sendMailWithPdf(
+      recipients,
+      from,
+      subject,
+      bodyHtml,
+      fileName,
+      pdfBuffer
+    );
 
-    return { ok: true, fileName, mailedTo: recipients };
+    return { ok: true, fileName, mailedTo: recipients, formId: resolvedFormId };
   });
+
