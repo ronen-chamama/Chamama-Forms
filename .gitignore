@@ -23,4 +23,7 @@ node_modules
 .next/
 
 firebaserun.bat
-firebaserun.ps1
+firebaserun.ps1.env*
+.next
+node_modules
+functions/node_modules

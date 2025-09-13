@@ -1,8 +1,8 @@
 // app/(app)/layout.tsx
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter, usePathname } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth } from "@/lib/firebaseClient";
 
@@ -12,18 +12,31 @@ import EmuPadding from "@/components/EmuPadding";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const router = useRouter();
+  const pathname = usePathname();
   const [ready, setReady] = useState(false);
 
+  // החרגה: כל מה שתחת /f/** ציבורי וללא התחברות
+  const isPublicRoute = useMemo(() => {
+    if (!pathname) return false;
+    return pathname === "/f" || pathname.startsWith("/f/");
+  }, [pathname]);
+
   useEffect(() => {
+    if (isPublicRoute) {
+      // לא בודקים התחברות בכלל בעמודי /f/**
+      setReady(true);
+      return;
+    }
     const unsub = onAuthStateChanged(auth, (user) => {
       if (!user) {
-        router.replace("/login");
+        const next = pathname ? `?next=${encodeURIComponent(pathname)}` : "";
+        router.replace(`/login${next}`);
       } else {
         setReady(true);
       }
     });
     return () => unsub();
-  }, [router]);
+  }, [router, isPublicRoute, pathname]);
 
   // בזמן בדיקה/הפניה לא מציגים את התוכן
   if (!ready) {

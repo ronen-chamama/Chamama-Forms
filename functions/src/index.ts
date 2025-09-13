@@ -417,6 +417,9 @@ export const submitFormToDrive = functions
   .runWith({ timeoutSeconds: 120, memory: "1GB" })
   .https.onCall(async (data: SubmitPayload, context) => {
     console.log("[submitFormToDrive] args keys:", Object.keys(data || {}));
+    console.log("[submitFormToDrive] v2 public-flow, hasAuth=", !!context.auth, "appCheck=", !!context.app?.appId);
+
+
 
     // ולידציית payload בסיסית
     if (!data || typeof data !== "object") {
