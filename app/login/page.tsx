@@ -4,13 +4,15 @@ import Image from "next/image";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { auth } from "@/lib/firebaseClient";
-import { onAuthStateChanged } from "firebase/auth";
-import { GoogleAuthProvider, signInWithPopup } from "firebase/auth";
+import { onAuthStateChanged, GoogleAuthProvider, signInWithPopup } from "firebase/auth";
+
 
 export default function LoginPage() {
   const router = useRouter();
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+  const [photoErr, setPhotoErr] = useState<string | null>(null);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (u) => {
@@ -18,6 +20,7 @@ export default function LoginPage() {
     });
     return () => unsub();
   }, [router]);
+
 
   async function loginWithGoogle() {
     setErr(null);
@@ -30,7 +33,7 @@ export default function LoginPage() {
     } catch (e: any) {
       const code = e?.code || "";
       if (code === "permission-denied" || code === "auth/permission-denied") {
-        setErr("אין לך הרשאה להיכנס. פנה/י למנהל להוספה לרשימת מורשים.");
+        setErr("אין לך הרשאה להיכנס. פנה/י לרונן להוספה לרשימת מורשים.");
       } else if (code === "auth/popup-closed-by-user") {
         setErr("החלון נסגר לפני סיום ההתחברות.");
       } else {
@@ -41,6 +44,49 @@ export default function LoginPage() {
     }
   }
 
+ useEffect(() => {
+  const key = process.env.NEXT_PUBLIC_GOOGLE_API_KEY;
+  const folder = process.env.NEXT_PUBLIC_LOGIN_PHOTOS_FOLDER;
+  if (!key || !folder) return;
+
+  (async () => {
+    try {
+      // מביאים גם thumbnailLink + webContentLink
+      const q = encodeURIComponent(`'${folder}' in parents and mimeType contains 'image/' and trashed=false`);
+      const fields = encodeURIComponent("files(id,name,mimeType,thumbnailLink,webContentLink)");
+      const url =
+        `https://www.googleapis.com/drive/v3/files?q=${q}` +
+        `&fields=${fields}` +
+        `&pageSize=50&orderBy=modifiedTime desc` +
+        `&includeItemsFromAllDrives=true&supportsAllDrives=true` +
+        `&key=${key}`;
+
+      console.log("[login photo] fetch list", { url });
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`list failed ${res.status}`);
+      const json = await res.json();
+      const files: Array<{ id: string; name: string; mimeType: string; thumbnailLink?: string; webContentLink?: string }> = json?.files || [];
+      console.log("[login photo] files:", files.length);
+      if (!files.length) return;
+
+      const pick = files[Math.floor(Math.random() * files.length)];
+
+      // 1) מועדף: thumbnailLink (להגדיל רזולוציה)
+      let urlImg =
+        (pick.thumbnailLink && pick.thumbnailLink.replace(/=s\d+(-c)?$/i, "=s2000")) ||
+        // 2) fallback יציב לציבורי:
+        `https://drive.google.com/uc?export=view&id=${pick.id}`;
+
+      // למקרה של קאש קשוח בזמן פיתוח:
+      urlImg += (urlImg.includes("?") ? "&" : "?") + "t=" + Date.now();
+
+      setPhotoUrl(urlImg);
+    } catch (e) {
+      console.warn("[login photo] error", e);
+    }
+  })();
+}, []);
+
   return (
     <main dir="rtl" className="min-h-screen grid grid-cols-1 md:grid-cols-2 bg-neutral-50">
       {/* ימין: כרטיס התחברות עם לוגו */}
@@ -48,13 +94,12 @@ export default function LoginPage() {
         <div className="w-full max-w-md bg-white rounded-2xl shadow-xl border border-neutral-200 p-6 md:p-8">
           <div className="flex flex-col items-center gap-3 mb-6">
             <Image
-              src="/branding/logo-squer-color.png"
-              alt="לוגו תיכון החממה"
-              width={96}
-              height={96}
-              priority
-              className="rounded-xl"
-            />
+  src="/branding/logo-squer-color.png"
+  alt="תיכון החממה"
+  width={120}
+  height={120}
+  style={{ width: "auto", height: "auto" }} // או אל תשנה בכלל ב-CSS
+/>
             <h1 className="text-2xl font-semibold text-neutral-900">ברוכ.ה הבא.ה</h1>
             <p className="text-sm text-neutral-500">התחברות למערכת הטפסים</p>
           </div>
@@ -85,17 +130,34 @@ export default function LoginPage() {
         </div>
       </section>
 
-      {/* שמאל: placeholder לתמונה/איור עתידי */}
-      <section className="hidden md:flex relative items-center justify-center bg-neutral-900 text-white">
-        <div className="max-w-sm text-center">
-          <div className="border-2 border-dashed border-white/30 rounded-2xl p-8">
-            <p className="text-lg mb-2">אזור תמונה</p>
-            <p className="text-sm text-white/70">
-              כאן נוסיף בהמשך תמונת השראה/איור (AI או סטוק).
-            </p>
-          </div>
-        </div>
-      </section>
+         {/* שמאל: מסגרת 80% עם תמונה */}
+      <section className="hidden md:flex items-center justify-center bg-neutral-900 text-white">
+  <div className="group relative w-[80%] h-[80%] rounded-2xl overflow-hidden ring-1 ring-white/10 shadow-2xl">
+    {photoUrl ? (
+      <Image
+        src={photoUrl}
+        alt="תמונת השראה"
+        fill
+        className="
+  object-cover
+sepia
+  transform transform-gpu origin-center scale-100
+  transition duration-3000 ease-in-out           /* ← כולל גם filter וגם transform */
+  group-hover:sepia-0 group-hover:scale-[1.035]
+  motion-reduce:transition-none motion-reduce:transform-none
+"
+        sizes="(max-width: 1024px) 50vw, 50vw"
+        priority
+        unoptimized
+        style={{ willChange: "transform, filter" }}
+      />
+    ) : (
+      <div className="w-full h-full grid place-items-center text-white/70">
+        טוען תמונה…
+      </div>
+    )}
+  </div>
+</section>
     </main>
   );
 }
