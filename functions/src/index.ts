@@ -540,3 +540,57 @@ export const submitFormToDrive = functions
     return { ok: true, fileName, mailedTo: recipients, formId: resolvedFormId };
   });
 
+  export const publishFormPublic = functions
+  .region("us-central1")
+  .runWith({ timeoutSeconds: 60, memory: "256MB" })
+  .https.onCall(async (data, context) => {
+    // ==== אימות ====
+    if (!context.auth) {
+      throw new functions.https.HttpsError("unauthenticated", "auth required");
+    }
+    if (!data || typeof data !== "object") {
+      throw new functions.https.HttpsError("invalid-argument", "payload required");
+    }
+
+    const { formId, publicId, payload } = data as {
+      formId?: string;
+      publicId?: string;
+      payload?: any;
+    };
+    if (!formId || !publicId) {
+      throw new functions.https.HttpsError("invalid-argument", "formId & publicId are required");
+    }
+
+    const db = admin.firestore();
+
+    // טען את הטופס המקורי ואמת בעלות
+    const formRef = db.doc(`forms/${formId}`);
+    const snap = await formRef.get();
+    if (!snap.exists) {
+      throw new functions.https.HttpsError("not-found", "form not found");
+    }
+    const form = snap.data()!;
+    if (form.ownerUid !== context.auth.uid) {
+      throw new functions.https.HttpsError("permission-denied", "not the owner");
+    }
+
+    // בנה מסמך ציבורי "נקי" (ללא שדות שמנוהלים בשרת)
+    const src = (payload && typeof payload === "object") ? payload : form;
+    const allowed = ["title", "description", "schema", "fields", "formFields", "items", "heroUrl", "publicId"];
+    const publicDoc: any = {};
+    for (const k of allowed) {
+      if (k in src) publicDoc[k] = src[k];
+    }
+    delete publicDoc.submissionCount;
+    delete publicDoc.lastSubmissionAt;
+
+    publicDoc.sourceFormId = formId;
+    publicDoc.ownerUid = form.ownerUid;
+    publicDoc.updatedAt = admin.firestore.FieldValue.serverTimestamp();
+    publicDoc.updatedAtMs = Date.now();
+
+    // כתיבה למסמך הציבורי
+    await db.doc(`formsPublic/${publicId}`).set(publicDoc, { merge: true });
+
+    return { ok: true };
+  });

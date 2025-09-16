@@ -27,25 +27,28 @@ export default function RichTextEditor({
 }: Props) {
   const lastHtmlRef = useRef<string>("");
 
-  const editor = useEditor({
-    // חשוב ב-Next כדי למנוע Hydration mismatch
-    immediatelyRender: false,
-    extensions: [
-      StarterKit.configure({ heading: { levels: [2, 3, 4] } }),
-      Underline,
-      Link.configure({
-        openOnClick: false,
-        autolink: true,
-        protocols: ["http", "https", "mailto"],
-        HTMLAttributes: { rel: "noopener noreferrer nofollow" },
-      }),
-      TextAlign.configure({
-        types: ["heading", "paragraph"],
-        alignments: ["right", "left", "center", "justify"],
-        defaultAlignment: "right",
-      }),
-      Placeholder.configure({ placeholder }),
-    ],
+const editor = useEditor({
+  immediatelyRender: false,
+  extensions: [
+    StarterKit.configure({
+      heading: { levels: [2, 3, 4] },
+      link: false,       // מונע כפילות של 'link' מה־StarterKit
+      underline: false,  // מונע כפילות של 'underline' מה־StarterKit
+    }),
+    Underline,
+    Link.configure({
+      openOnClick: false,
+      autolink: true,
+      protocols: ["http", "https", "mailto"],
+      HTMLAttributes: { rel: "noopener noreferrer nofollow" },
+    }),
+    TextAlign.configure({
+      types: ["heading", "paragraph"],
+      alignments: ["right", "left", "center", "justify"],
+      defaultAlignment: "right",
+    }),
+    Placeholder.configure({ placeholder }),
+  ],
     content: value || "",
     onUpdate: ({ editor }) => {
       const html = editor.getHTML();

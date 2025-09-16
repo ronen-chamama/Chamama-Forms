@@ -1,5 +1,7 @@
 "use client";
 
+import { getDownloadURL, ref } from "firebase/storage";
+import { storage } from "@/lib/firebaseClient"; // ודא ש-export כזה קיים
 import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { useParams, useRouter } from "next/navigation";
@@ -55,7 +57,7 @@ type FormDoc = {
 export default function ParentFormPage() {
   const { id: incomingId } = useParams<{ id: string }>();
   const router = useRouter();
-
+  const [heroUrl, setHeroUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState<FormDoc | null>(null);
   const [schema, setSchema] = useState<Field[]>([]);
@@ -71,6 +73,24 @@ export default function ParentFormPage() {
   const [sending, setSending] = useState(false);
 
   // טען טופס (מזהה מסמך → publicId)
+  
+  useEffect(() => {
+  let cancelled = false;
+  setHeroUrl(null);
+  if (!resolvedFormId) return;
+
+  getDownloadURL(ref(storage, `forms/${resolvedFormId}/hero.png`))
+    .then((url) => { if (!cancelled) setHeroUrl(url); })
+    .catch((err: any) => {
+      // בולעים "object-not-found" בשקט; אחרים — לוג
+      if (err?.code !== "storage/object-not-found") {
+        console.warn("[parent form] hero getDownloadURL failed:", err?.code || err);
+      }
+    });
+return () => { cancelled = true; };
+}, [resolvedFormId]);
+
+
   useEffect(() => {
     (async () => {
       setLoading(true);
@@ -221,35 +241,51 @@ export default function ParentFormPage() {
   return (
     <main dir="rtl" className="mx-auto max-w-3xl px-6 sm:px-8 py-8">
       {/* Hero – תואם לעריכת הטופס: פלייסהולדר + לוגו */}
-      <div className="rounded-2xl border border-neutral-200 bg-white overflow-hidden">
-        <div className="relative">
-          <div className="h-40 md:h-56 bg-gradient-to-br from-neutral-200 via-neutral-100 to-neutral-200" />
-          <div className="absolute top-2 left-2 opacity-80">
-            <div className="relative w-[120px] h-[28px]">
-              <Image
-                src="/branding/logo-banner-color.png"
-                alt=""
-                fill
-                sizes="120px"
-                className="object-contain"
-                priority
-              />
-            </div>
-          </div>
-        </div>
+     <div className="rounded-2xl border border-neutral-200 bg-white overflow-hidden">
+  <div className="relative">
+    <div className="relative h-40 md:h-56">
+      {heroUrl ? (
+        <Image
+          src={heroUrl}
+          alt=""
+          fill
+          sizes="(max-width: 768px) 100vw, 768px"
+          className="object-cover"
+          priority
+        />
+      ) : (
+        <div className="w-full h-full bg-gradient-to-br from-neutral-200 via-neutral-100 to-neutral-200" />
+      )}
+    </div>
 
-        <div className="p-5 md:p-6 border-t border-neutral-200">
-          <h1 className="text-2xl font-semibold">{form.title || "טופס"}</h1>
-
-          {(form.description || form.descriptionHtml) ? (
-  <div
-    className="prose prose-neutral rtl:text-right max-w-none prose-p:my-2 prose-ul:my-2 prose-ol:my-2 prose-li:my-1 prose-strong:font-semibold prose-h2:text-xl prose-h3:text-lg"
-    style={{ direction: "rtl" }}
-    dangerouslySetInnerHTML={{ __html: form.description || form.descriptionHtml || "" }}
-  />
-) : null}
-        </div>
+    {/* לוגו מעל ההירו — כמו שהיה */}
+    <div className="absolute top-2 left-2 opacity-80">
+      <div className="relative w-[120px] h-[28px]">
+        <Image
+          src="/branding/logo-banner-color.png"
+          alt=""
+          fill
+          sizes="120px"
+          className="object-contain"
+          loading="eager"       // ← במקום priority
+  fetchPriority="high"  // אופציונלי
+        />
       </div>
+    </div>
+  </div>
+
+  <div className="p-5 md:p-6 border-t border-neutral-200">
+    <h1 className="text-2xl font-semibold">{form.title || "טופס"}</h1>
+
+    {(form.description || form.descriptionHtml) ? (
+      <div
+        className="prose prose-neutral rtl:text-right max-w-none prose-p:my-2 prose-ul:my-2 prose-ol:my-2 prose-li:my-1 prose-strong:font-semibold prose-h2:text-xl prose-h3:text-lg"
+        style={{ direction: "rtl" }}
+        dangerouslySetInnerHTML={{ __html: form.description || form.descriptionHtml || "" }}
+      />
+    ) : null}
+  </div>
+</div>
 
       {/* טופס מילוי */}
       <form onSubmit={onSubmit} className="mt-8 space-y-4">
