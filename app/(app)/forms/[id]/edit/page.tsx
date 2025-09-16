@@ -490,7 +490,7 @@ return (
             alt=""
             fill
             priority
-            sizes="100vw"
+            sizes="(max-width: 768px) 100vw, (max-width: 1280px) 90vw, 1200px"
             className="object-cover object-center"
             onError={(e) => console.warn("[hero] failed to load:", form.heroUrl, e)}
             onLoad={(e) => {

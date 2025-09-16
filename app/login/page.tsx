@@ -98,6 +98,7 @@ export default function LoginPage() {
   alt="תיכון החממה"
   width={120}
   height={120}
+  priority
   style={{ width: "auto", height: "auto" }} // או אל תשנה בכלל ב-CSS
 />
             <h1 className="text-2xl font-semibold text-neutral-900">ברוכ.ה הבא.ה</h1>
