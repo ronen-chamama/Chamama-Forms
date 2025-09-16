@@ -471,6 +471,17 @@ export const submitFormToDrive = functions
 
     console.log("[recipients resolved]", recipients);
     await sendMailWithPdf(recipients, from, subject, bodyHtml, fileName, pdfBuffer);
+    // עדכון אטומי של המונה + חותמת זמן אחרונה
+try {
+  await formRef.update({
+    submissionCount: admin.firestore.FieldValue.increment(1),
+    lastSubmissionAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+  console.log("[submitFormToDrive] submissionCount incremented");
+} catch (e) {
+  console.error("[submitFormToDrive] failed to increment submissionCount", e);
+  // לא מפילים את כל התהליך אם המייל נשלח — רק לוג
+}
 
     return { ok: true, fileName, mailedTo: recipients };
   });

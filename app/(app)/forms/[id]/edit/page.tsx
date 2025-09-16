@@ -6,7 +6,7 @@ import Image from "next/image";
 import { useParams } from "next/navigation";
 import { auth, db, functions } from "@/lib/firebaseClient";
 import { onAuthStateChanged, User } from "firebase/auth";
-import { httpsCallable } from "firebase/functions";
+import { getFunctions, httpsCallable } from "firebase/functions";
 import { COPY } from "@/lib/copy";
 import {
   collection,
@@ -227,64 +227,95 @@ export default function EditFormPage() {
   /* ======================= Save Logic ======================= */
 
   async function saveForm(opts?: { autosave?: boolean }) {
-    if (!form) return;
-    const isAuto = !!opts?.autosave;
+  if (!form) return;
+  const isAuto = !!opts?.autosave;
 
-    const dbi = getFirestore();
-    const base = cloneDeep(form);
-    const pubId = (base.publicId && base.publicId.trim()) || id;
-    const currentTitle = (base.title || "").trim();
-    const hadHero = !!base.heroUrl;
+  const db = getFirestore();
+  const fn = getFunctions(undefined, /* region: */ "us-central1"); // אם אתה בפרודקשן על אזור אחר – עדכן כאן
+  const publishPublic = httpsCallable(fn, "publishFormPublic");     // פונקציה חדשה בצד שרת
+  const genHero = httpsCallable(fn, "generateFormHero");            // הפונקציה הקיימת ל-AI
 
-    const payload = buildPayloadForSave({ ...base, publicId: pubId }, user);
+  const base = cloneDeep(form);
+  const pubId = (base.publicId && base.publicId.trim()) || id;
+  const currentTitle = (base.title || "").trim();
+  const hadHero = !!base.heroUrl;
 
-    if (isAuto) setAutoSaving(true);
-    else setSaving(true);
+  const payload = buildPayloadForSave({ ...base, publicId: pubId }, user);
+  const { submissionCount, lastSubmissionAt, ...payloadClean } = payload as any;
 
-    try {
-      // כתיבה ל-forms/{id}
-      await setDoc(doc(dbi, "forms", id), payload, { merge: true });
 
-      // כתיבה ל-users/{uid}/forms/{id}
-      const uid = user?.uid;
-      if (uid) {
-        await setDoc(doc(dbi, "users", uid, "forms", id), payload, { merge: true });
-      }
+  if (isAuto) setAutoSaving(true);
+  else setSaving(true);
 
-      // כתיבה ל-formsPublic/{publicId} (על פי pubId)
-      await setDoc(doc(dbi, "formsPublic", pubId), payload, { merge: true });
+  try {
+    // כתיבה למסמכים העיקריים (טופס + מראה תחת המשתמש)
+    const writes: Promise<unknown>[] = [
+  setDoc(doc(db, "forms", id), payloadClean, { merge: true })
+];
+const uid = user?.uid;
+if (uid) {
+  writes.push(
+    setDoc(doc(db, "users", uid, "forms", id), payloadClean, { merge: true })
+  );
+}
 
-      setLastSavedAt(Date.now());
-      savedSnapshotRef.current = JSON.stringify({ ...form, publicId: pubId });
-      setForm((prev) => (prev ? { ...prev, publicId: pubId } : prev));
+    const [formsRes, userRes] = await Promise.allSettled(writes);
+    if (formsRes.status !== "fulfilled") {
+      // זו הכתיבה הקריטית. אם אין הרשאה – נדווח בצורה נעימה ונסיים.
+      const err = formsRes.reason as any;
+      console.error("[saveForm] forms write failed:", err);
+      const msg =
+        err?.code === "permission-denied"
+          ? "אין לך הרשאות לשמור את הטופס הזה."
+          : "שמירה נכשלה. נסה שוב.";
+      toast?.error?.(msg);
+      return;
+    }
+    if (userRes?.status === "rejected") {
+      console.warn("[saveForm] users/{uid}/forms mirror failed:", userRes.reason);
+      // לא חוסם את הזרימה
+    }
 
-      // === יצירת תמונת קאבר רק בשמירה ידנית ===
-      if (!isAuto && currentTitle) {
-        const titleChangedSinceGeneration =
-          currentTitle !== lastGeneratedTitleRef.current;
+    // עדכון מצב לוקאלי
+    setLastSavedAt(Date.now());
+    savedSnapshotRef.current = JSON.stringify({ ...form, publicId: pubId });
+    setForm((prev) => (prev ? { ...prev, publicId: pubId } : prev));
 
-        if (!hadHero || titleChangedSinceGeneration) {
-          setGeneratingHero(true);
-          try {
-            const gen = httpsCallable(functions, "generateFormHero");
-            const res = await gen({ formId: id, title: currentTitle });
-            const heroUrl = (res.data as any)?.heroUrl;
-            if (heroUrl) {
-              setForm((f) => (f ? { ...f, heroUrl } : f));
-              lastGeneratedTitleRef.current = currentTitle;
-            }
-          } catch (e) {
-            console.warn("hero generation failed", e);
-          } finally {
-            setGeneratingHero(false);
+    // פרסום ל-formsPublic בצד שרת (כדי לא להיתקע על rules) — עושים גם באוטוסייב כדי שהאתר הציבורי יתעדכן,
+    // אבל אם תרצה לצמצם קריאות: אפשר להעביר את זה רק בשמירה ידנית.
+   try {
+  await publishPublic({ formId: id, publicId: pubId, payload: payloadClean });
+} catch (e) {
+  console.warn("[saveForm] publishFormPublic skipped:", e);
+}
+
+    // === יצירת תמונת קאבר רק בשמירה ידנית ===
+    if (!isAuto && currentTitle) {
+      const titleChangedSinceGeneration =
+        currentTitle !== lastGeneratedTitleRef.current;
+
+      if (!hadHero || titleChangedSinceGeneration) {
+        setGeneratingHero(true);
+        try {
+          const res = await genHero({ formId: id, title: currentTitle });
+          const heroUrl = (res.data as any)?.heroUrl;
+          if (heroUrl) {
+            setForm((f) => (f ? { ...f, heroUrl } : f));
+            lastGeneratedTitleRef.current = currentTitle;
           }
+        } catch (e) {
+          console.warn("hero generation failed", e);
+        } finally {
+          setGeneratingHero(false);
         }
       }
-    } finally {
-      if (isAuto) setAutoSaving(false);
-      else setSaving(false);
     }
+  } finally {
+    if (isAuto) setAutoSaving(false);
+    else setSaving(false);
   }
+}
+
 
   // Debounce autosave על כל שינוי ב-form
   useEffect(() => {
@@ -388,222 +419,251 @@ export default function EditFormPage() {
   /* ======================= Render ======================= */
 
   if (loading || !form) {
-    return (
-      <main className="mx-auto max-w-7xl px-6 sm:px-8 py-8" dir="rtl">
-        <div className="rounded-2xl border border-neutral-200 bg-white overflow-hidden">
-          <div className="h-40 bg-neutral-200 animate-pulse" />
-          <div className="p-6">
-            טוען…
-          </div>
-        </div>
-      </main>
-    );
-  }
-
-  const liveUrl = form.publicId ? `/f/${form.publicId}` : `/f/${id}`;
-
   return (
     <main className="mx-auto max-w-7xl px-6 sm:px-8 py-8" dir="rtl">
-      {/* כפתור חזרה */}
-      <div className="mb-4 flex justify-end">
-        <Link
-          href="/"
-          className="inline-flex items-center gap-2 h-9 px-3 rounded-lg border border-neutral-300 bg-white text-sm hover:bg-neutral-50"
-        >
-          <span aria-hidden>↩︎</span>
-          <span>חזרה לטפסים שלי</span>
-        </Link>
-      </div>
-
-      {/* Hero קטן */}
       <div className="rounded-2xl border border-neutral-200 bg-white overflow-hidden">
-        <div className="relative">
-          <div className="h-40 md:h-56 bg-gradient-to-br from-neutral-200 via-neutral-100 to-neutral-200" />
-          <div className="absolute top-2 left-2 opacity-80">
-            <div className="relative w-[120px] h-[28px]">
-              <Image
-                src="/branding/logo-banner-color.png"
-                alt=""
-                fill
-                sizes="120px"
-                className="object-contain"
-                priority
-              />
-            </div>
-          </div>
-        </div>
-
-        <div className="p-5 md:p-6 border-t border-neutral-200">
-          {/* כותרת ואז תיאור — אחד מעל השני */}
-          <div className="grid gap-4">
-            {/* כותרת הטופס */}
-            <label className="grid gap-1.5">
-              <span className="text-sm text-neutral-700">{COPY.editPage.titleLabel}</span>
-              <input
-                value={form.title}
-                onChange={(e) => setForm((f) => (f ? { ...f, title: e.target.value } : f))}
-                className="h-11 rounded-xl border border-neutral-300 px-3 bg-white focus:outline-none focus:ring-2 focus:ring-sky-400"
-                placeholder={COPY.editPage.titlePlaceholder}
-              />
-            </label>
-
-            {/* תיאור הטופס */}
-            <div className="grid gap-1.5">
-              <span className="text-sm text-neutral-700">{COPY.editPage.descLabel}</span>
-              <RichTextEditor
-                value={form.description || ""}
-                onChange={(html) => setForm((f) => (f ? { ...f, description: html } : f))}
-                placeholder={COPY.editPage.descPlaceholder}
-              />
-            </div>
-          </div>
-
-          {/* כפתורי פעולה */}
-          <div className="mt-3 flex items-center justify-between gap-3">
-            <a
-              href={liveUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 h-10 px-3 rounded-xl border border-neutral-200 bg-white text-sm hover:bg-neutral-50"
-              title="פתיחת תצוגת הטופס בחלון חדש"
-            >
-              <span aria-hidden>👁️</span>
-              <span>תצוגה</span>
-            </a>
-
-            <div className="flex items-center gap-3">
-              <span className="text-xs text-neutral-500 min-w-[8ch] text-center">
-                {saving || autoSaving
-                  ? "שומר…"
-                  : lastSavedAt
-                  ? "נשמר אוטומטית"
-                  : ""}
-              </span>
-              <button
-                onClick={() => saveForm({ autosave: false })}
-                disabled={saving || generatingHero}
-                className="h-10 px-5 rounded-xl bg-sky-600 text-white text-sm font-semibold hover:bg-sky-700 disabled:opacity-50"
-              >
-                {generatingHero ? "יוצר תמונה…" : saving ? "שומר..." : "שמירה"}
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* אזור עריכת השדות */}
-      <div className="mt-8 grid grid-cols-1 gap-8 md:[grid-template-columns:300px_minmax(0,1fr)]">
-        {/* עמודה ימנית – פלטת רכיבים */}
-        <aside className="md:sticky md:top-16 lg:top-25 md:self-start">
-          <div className="rounded-2xl border border-neutral-200 bg-white p-4
-                  md:max-h-[calc(100dvh-4rem)] lg:max-h-[calc(100dvh-5rem)] overflow-auto">
-            <h3 className="text-sm font-semibold mb-3">{COPY.editPage.paletteTitle}</h3>
-            <div className="grid gap-2">
-              {(["text","textarea","number","phone","email","select","radio","checkboxes","consent","signature"] as FieldType[]).map((t) => (
-                <div
-                  key={t}
-                  draggable
-                  onDragStart={() => onPaletteDragStart(t)}
-                  onDragEnd={clearDrag}
-                  onClick={() => addField(t, form.schema.length)}
-                  className="cursor-grab active:cursor-grabbing rounded-xl border border-neutral-300 bg-white px-3 py-2 text-sm hover:bg-neutral-50"
-                  title={COPY.editPage.emptyDropHintIdle}
-                >
-                  {typeLabel(t)}
-                </div>
-              ))}
-            </div>
-          </div>
-        </aside>
-
-        {/* עמודה שמאלית – רשימת שדות + דרופזון */}
-        <section>
-          <div
-            className="rounded-2xl border border-neutral-200 bg-white p-4"
-            onDragOver={(e) => {
-              e.preventDefault();
-              // אם אין שדות עדיין – ההכנסה תהיה בתחילת המערך (0)
-              if (form.schema.length === 0) setOverIndex(0);
-            }}
-            onDragLeave={(e) => {
-              // אם יוצאים מחוץ לאזור כולו
-              if (!(e.currentTarget as HTMLElement).contains(e.relatedTarget as Node)) {
-                setOverIndex(null);
-              }
-            }}
-            onDrop={(e) => {
-              e.preventDefault();
-
-              // אם הדרופ נעשה בתוך הדרופזון הריק – כבר טופל שם, אל תטפל שוב
-              const insideEmptyDZ = (e.target as HTMLElement)?.closest('[data-dropzone-empty="true"]');
-              if (insideEmptyDZ) {
-                clearDrag();
-                return;
-              }
-
-              if (!dragKind) return;
-
-              if (dragKind.kind === "palette") {
-                const idx = overIndex == null ? form.schema.length : overIndex;
-                addField(dragKind.ftype, idx);
-              } else if (dragKind.kind === "reorder") {
-                const from = dragKind.index;
-                let to = overIndex == null ? form.schema.length : overIndex;
-                if (to > from) to = to - 1;
-                if (to < 0) to = 0;
-                if (to > form.schema.length - 1) to = form.schema.length - 1;
-                if (from !== to) moveField(from, to);
-              }
-              clearDrag();
-            }}
-          >
-            <h3 className="text-sm font-semibold mb-3">שדות הטופס</h3>
-
-            {/* דרופ־זון ריקה כשאין שדות */}
-            {form.schema.length === 0 ? (
-              <EmptyDropZone
-                active={overIndex === 0}
-                isDragging={!!dragKind}
-                onDragEnter={() => setOverIndex(0)}
-                onDragOver={() => setOverIndex(0)}
-                onDrop={() => {
-                  if (dragKind?.kind === "palette") addField(dragKind.ftype, 0);
-                  clearDrag();
-                }}
-              />
-            ) : (
-              <div className="grid gap-4">
-                {form.schema.map((field, index) => (
-                  <div key={field.id}>
-                    {/* אינדיקציית הכנסת פריט מעל הכרטיס */}
-                    {overIndex === index && (
-                      <InsertMarker />
-                    )}
-
-                    <FieldCard
-                      field={field}
-                      index={index}
-                      onChange={(patch) => updateField(field.id, patch)}
-                      onRemove={() => removeField(field.id)}
-                      onDragStart={() => onFieldDragStart(index)}
-                      onDragEnd={clearDrag}
-                      onDragOverTop={() => setOverIndex(index)}
-                      onDragOverBottom={() => setOverIndex(index + 1)}
-                    />
-
-                    {/* אינדיקציית הכנסת פריט בסוף הרשימה */}
-                    {index === form.schema.length - 1 && overIndex === form.schema.length && (
-                      <InsertMarker />
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </section>
+        <div className="h-40 bg-neutral-200 animate-pulse" />
+        <div className="p-6">טוען…</div>
       </div>
     </main>
   );
+}
+
+// ✅ חישוב יחיד של ה־URL לתצוגה חיה (אל תגדיר שוב בהמשך הקובץ)
+const liveUrl = form.publicId ? `/f/${form.publicId}` : `/f/${id}`;
+
+return (
+  <main className="mx-auto max-w-7xl px-6 sm:px-8 py-8" dir="rtl">
+    {/* כפתור חזרה */}
+    <div className="mb-4 flex justify-end">
+      <Link
+        href="/"
+        className="inline-flex items-center gap-2 h-9 px-3 rounded-lg border border-neutral-300 bg-white text-sm hover:bg-neutral-50"
+      >
+        <span aria-hidden>↩︎</span>
+        <span>חזרה לטפסים שלי</span>
+      </Link>
+    </div>
+
+    {/* כרטיס ה־Hero + טופס עריכה */}
+    <div className="rounded-2xl border border-neutral-200 bg-white overflow-hidden">
+      {/* Hero */}
+      <div className="relative h-40 md:h-56">
+        {/* גרדיאנט בסיס */}
+        <div className="absolute inset-0 bg-gradient-to-br from-neutral-200 via-neutral-100 to-neutral-200" />
+
+        {/* אם יש תמונה – מציגים מעל הגרדיאנט */}
+        {form.heroUrl ? (
+          <Image
+            src={form.heroUrl}
+            alt=""
+            fill
+            priority
+            sizes="100vw"
+            className="object-cover object-center"
+            onError={(e) => console.warn("[hero] failed to load:", form.heroUrl, e)}
+            onLoadingComplete={() => console.log("[hero] loaded:", form.heroUrl)}
+          />
+        ) : null}
+
+        {/* לוגו למעלה-שמאל */}
+        <div className="absolute top-2 left-2 opacity-80">
+          <div className="relative w-[120px] h-[28px]">
+            <Image
+              src="/branding/logo-banner-color.png"
+              alt=""
+              fill
+              sizes="120px"
+              className="object-contain"
+              priority
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* אזור העריכה */}
+      <div className="p-5 md:p-6 border-t border-neutral-200">
+        {/* כותרת ואז תיאור — אחד מעל השני */}
+        <div className="grid gap-4">
+          {/* כותרת הטופס */}
+          <label className="grid gap-1.5">
+            <span className="text-sm text-neutral-700">{COPY.editPage.titleLabel}</span>
+            <input
+              value={form.title}
+              onChange={(e) =>
+                setForm((f) => (f ? { ...f, title: e.target.value } : f))
+              }
+              className="h-11 rounded-xl border border-neutral-300 px-3 bg-white focus:outline-none focus:ring-2 focus:ring-sky-400"
+              placeholder={COPY.editPage.titlePlaceholder}
+            />
+          </label>
+
+          {/* תיאור הטופס */}
+          <div className="grid gap-1.5">
+            <span className="text-sm text-neutral-700">{COPY.editPage.descLabel}</span>
+            <RichTextEditor
+              value={form.description || ""}
+              onChange={(html) =>
+                setForm((f) => (f ? { ...f, description: html } : f))
+              }
+              placeholder={COPY.editPage.descPlaceholder}
+            />
+          </div>
+        </div>
+
+        {/* כפתורי פעולה */}
+        <div className="mt-3 flex items-center justify-between gap-3">
+          <a
+            href={liveUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 h-10 px-3 rounded-xl border border-neutral-200 bg-white text-sm hover:bg-neutral-50"
+            title="פתיחת תצוגת הטופס בחלון חדש"
+          >
+            <span aria-hidden>👁️</span>
+            <span>תצוגה</span>
+          </a>
+
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-neutral-500 min-w-[8ch] text-center">
+              {saving || autoSaving ? "שומר…" : lastSavedAt ? "נשמר אוטומטית" : ""}
+            </span>
+            <button
+              onClick={() => saveForm({ autosave: false })}
+              disabled={saving || generatingHero}
+              className="h-10 px-5 rounded-xl bg-sky-600 text-white text-sm font-semibold hover:bg-sky-700 disabled:opacity-50"
+            >
+              {generatingHero ? "יוצר תמונה…" : saving ? "שומר..." : "שמירה"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {/* אזור עריכת השדות */}
+    <div className="mt-8 grid grid-cols-1 gap-8 md:[grid-template-columns:300px_minmax(0,1fr)]">
+      {/* עמודה ימנית – פלטת רכיבים */}
+      <aside className="md:sticky md:top-16 lg:top-25 md:self-start">
+        <div className="rounded-2xl border border-neutral-200 bg-white p-4 md:max-h-[calc(100dvh-4rem)] lg:max-h-[calc(100dvh-5rem)] overflow-auto">
+          <h3 className="text-sm font-semibold mb-3">{COPY.editPage.paletteTitle}</h3>
+          <div className="grid gap-2">
+            {(
+              [
+                "text",
+                "textarea",
+                "number",
+                "phone",
+                "email",
+                "select",
+                "radio",
+                "checkboxes",
+                "consent",
+                "signature",
+              ] as FieldType[]
+            ).map((t) => (
+              <div
+                key={t}
+                draggable
+                onDragStart={() => onPaletteDragStart(t)}
+                onDragEnd={clearDrag}
+                onClick={() => addField(t, form.schema.length)}
+                className="cursor-grab active:cursor-grabbing rounded-xl border border-neutral-300 bg-white px-3 py-2 text-sm hover:bg-neutral-50"
+                title={COPY.editPage.emptyDropHintIdle}
+              >
+                {typeLabel(t)}
+              </div>
+            ))}
+          </div>
+        </div>
+      </aside>
+
+      {/* עמודה שמאלית – רשימת שדות + דרופזון */}
+      <section>
+        <div
+          className="rounded-2xl border border-neutral-200 bg-white p-4"
+          onDragOver={(e) => {
+            e.preventDefault();
+            // אם אין שדות עדיין – ההכנסה תהיה בתחילת המערך (0)
+            if (form.schema.length === 0) setOverIndex(0);
+          }}
+          onDragLeave={(e) => {
+            // אם יוצאים מחוץ לאזור כולו
+            if (!(e.currentTarget as HTMLElement).contains(e.relatedTarget as Node)) {
+              setOverIndex(null);
+            }
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+
+            // אם הדרופ נעשה בתוך הדרופזון הריק – כבר טופל שם, אל תטפל שוב
+            const insideEmptyDZ = (e.target as HTMLElement)?.closest(
+              '[data-dropzone-empty="true"]'
+            );
+            if (insideEmptyDZ) {
+              clearDrag();
+              return;
+            }
+
+            if (!dragKind) return;
+
+            if (dragKind.kind === "palette") {
+              const idx = overIndex == null ? form.schema.length : overIndex;
+              addField(dragKind.ftype, idx);
+            } else if (dragKind.kind === "reorder") {
+              const from = dragKind.index;
+              let to = overIndex == null ? form.schema.length : overIndex;
+              if (to > from) to = to - 1;
+              if (to < 0) to = 0;
+              if (to > form.schema.length - 1) to = form.schema.length - 1;
+              if (from !== to) moveField(from, to);
+            }
+            clearDrag();
+          }}
+        >
+          <h3 className="text-sm font-semibold mb-3">שדות הטופס</h3>
+
+          {/* דרופ־זון ריקה כשאין שדות */}
+          {form.schema.length === 0 ? (
+            <EmptyDropZone
+              active={overIndex === 0}
+              isDragging={!!dragKind}
+              onDragEnter={() => setOverIndex(0)}
+              onDragOver={() => setOverIndex(0)}
+              onDrop={() => {
+                if (dragKind?.kind === "palette") addField(dragKind.ftype, 0);
+                clearDrag();
+              }}
+            />
+          ) : (
+            <div className="grid gap-4">
+              {form.schema.map((field, index) => (
+                <div key={field.id}>
+                  {/* אינדיקציית הכנסת פריט מעל הכרטיס */}
+                  {overIndex === index && <InsertMarker />}
+
+                  <FieldCard
+                    field={field}
+                    index={index}
+                    onChange={(patch) => updateField(field.id, patch)}
+                    onRemove={() => removeField(field.id)}
+                    onDragStart={() => onFieldDragStart(index)}
+                    onDragEnd={clearDrag}
+                    onDragOverTop={() => setOverIndex(index)}
+                    onDragOverBottom={() => setOverIndex(index + 1)}
+                  />
+
+                  {/* אינדיקציית הכנסת פריט בסוף הרשימה */}
+                  {index === form.schema.length - 1 &&
+                    overIndex === form.schema.length && <InsertMarker />}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </section>
+    </div>
+  </main>
+);
 }
 
 /* ======================= UI subcomponents ======================= */
