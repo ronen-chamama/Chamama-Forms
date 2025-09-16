@@ -1,6 +1,35 @@
+// firestore.rules
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /{document=**} { allow read, write: if true; }
+    function isSignedIn() { return request.auth != null; }
+    function isOwner() {
+      return isSignedIn()
+        && request.auth.uid == resource.data.ownerUid;
+    }
+    function creatingAsSelf() {
+      return isSignedIn()
+        && request.resource.data.ownerUid == request.auth.uid;
+    }
+
+    // טפסים ראשיים
+    match /forms/{formId} {
+      allow create: if creatingAsSelf();
+      allow read:   if isOwner() || resource.data.isPublic == true;
+      allow update, delete: if isOwner();
+    }
+
+    // מראה תחת המשתמש
+    match /users/{uid}/forms/{formId} {
+      allow create: if isSignedIn()
+                    && uid == request.auth.uid
+                    && request.resource.data.ownerUid == request.auth.uid;
+      allow read, update, delete: if isSignedIn() && uid == request.auth.uid;
+    }
+
+    // ברירת מחדל: חסום הכל
+    match /{document=**} {
+      allow read, write: if false;
+    }
   }
 }

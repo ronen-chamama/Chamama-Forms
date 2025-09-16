@@ -1,56 +1,168 @@
-// functions/src/ai/generateFormHero.ts
 import * as admin from "firebase-admin";
-import { onCall, HttpsError } from "firebase-functions/v2/https";
-import { generateFluxImageBase64, toEnglishIfNeeded } from "./cf";
+import { onCall, CallableRequest } from "firebase-functions/v2/https";
+import { logger } from "firebase-functions";
+import { CF_ACCOUNT_ID, CF_API_TOKEN, CF_IMAGE_MODEL, runCFModel } from "./cf";
+import { v2 as TranslateV2 } from "@google-cloud/translate";
 
-try { admin.app(); } catch { admin.initializeApp(); }
+// ensure Admin initialized once
+try {
+  admin.app();
+} catch {
+  admin.initializeApp();
+}
 
-export const generateFormHero = onCall(
-  { region: "us-central1", timeoutSeconds: 120, memory: "1GiB" },
-  async (req) => {
-    const { formId, title } = (req.data || {}) as { formId?: string; title?: string };
+// נתוני קונפיג/ברירות מחדל
+const DEFAULT_IMAGE_MODEL = "@cf/black-forest-labs/flux-1-schnell";
+
+type Payload = { formId: string; title: string };
+
+/**
+ * בודק אם יש עברית/ערבית/כתב לא-לטיני — נשתמש פה לזיהוי אם צריך תרגום.
+ */
+function looksNonLatin(input: string) {
+  // טווח עברית \u0590-\u05FF, ערבית \u0600-\u06FF; אפשר להרחיב בהמשך
+  const nonLatin = /[\u0590-\u05FF\u0600-\u06FF]/;
+  return nonLatin.test(input);
+}
+
+/**
+ * תרגום/שכתוב כותרת לאנגלית קצרה — עכשיו עם Google Cloud Translation (הרשמי).
+ * אם אין צורך/נכשל — נחזיר את המקור.
+ */
+async function translateToEnglishIfNeeded(title: string): Promise<string> {
+  const trimmed = (title || "").trim();
+  if (!trimmed) return "";
+
+  if (!looksNonLatin(trimmed)) {
+    logger.info("[hero] title looks Latin, skip translate", { title: trimmed });
+    return trimmed;
+  }
+
+  // לקוח V2 — פשוט ויציב; משתמש ב-ADC של פונקציות.
+  const translate = new TranslateV2.Translate();
+
+  try {
+    const [translated] = await translate.translate(trimmed, "en");
+    const clean = String(translated ?? "").trim();
+    logger.info("[hero] translatedPrompt (gcloud)", {
+      original: trimmed,
+      translated: clean,
+    });
+    return clean || trimmed;
+  } catch (e: any) {
+    logger.warn("[hero] translate (gcloud) failed, fallback to original", {
+      error: String(e),
+    });
+    return trimmed;
+  }
+}
+
+/**
+ * בנייה עדינה של פרומפט "בטוח" ל-FLUX (SFW).
+ */
+function buildSafePrompt(englishShort: string) {
+  const core = englishShort || "abstract minimal website header";
+  return [
+    "A retro 1990s clip art, cartoon vector illustration, flat colors Clipart illustration of",
+    core,
+    "((no text)), ((no logos))",
+    "School, education, minimalism, clean lines, colorful background",
+  ].join(", ");
+}
+
+/**
+ * שמירה ל-Storage במסלול forms/<formId>/hero.png ויצירת URL ציבורי עם token.
+ */
+async function savePngToStorage(formId: string, pngBase64: string): Promise<string> {
+  const bucket = admin.storage().bucket();
+  const path = `forms/${formId}/hero.png`;
+
+  const buffer = Buffer.from(pngBase64, "base64");
+  const token =
+    (globalThis.crypto?.randomUUID?.() || require("crypto").randomUUID());
+
+  await bucket.file(path).save(buffer, {
+    contentType: "image/png",
+    public: false,
+    metadata: {
+      cacheControl: "public, max-age=31536000, immutable",
+      metadata: {
+        firebaseStorageDownloadTokens: token,
+      },
+    },
+  });
+
+  const url = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(
+    path
+  )}?alt=media&token=${token}`;
+  return url;
+}
+
+/**
+ * פונקציית ה-Callable — יוצרת הירו, שומרת ב-Storage, מעדכנת ב-forms/{id}.heroUrl ומחזירה heroUrl.
+ */
+export const generateFormHero = onCall<Payload>(
+  {
+    region: "us-central1",
+    timeoutSeconds: 60,
+    memory: "512MiB",
+    secrets: [CF_ACCOUNT_ID, CF_API_TOKEN, CF_IMAGE_MODEL],
+  },
+  async (req: CallableRequest<Payload>) => {
+    const formId = (req.data?.formId || "").trim();
+    const title  = (req.data?.title  || "").trim();
+
     if (!formId || !title) {
-      throw new HttpsError("invalid-argument", "formId and title are required");
+      logger.warn("[hero] missing formId/title", { formIdOk: !!formId, titleOk: !!title });
+      throw new Error("formId and title are required");
     }
 
-    // 1) תרגום (אם צריך)
-    const titleEn = await toEnglishIfNeeded(title);
+    const imageModel = CF_IMAGE_MODEL.value() || DEFAULT_IMAGE_MODEL;
+    logger.info("[hero] start", { formId, imageModel });
 
-    // 2) פרומפט “חכם” קצר ללא טקסט בתמונה
-    const style =
-      "professional minimal school form cover, clean composition, soft vivid colors, vector/flat illustration, no text, high quality";
-    const prompt = `${style}. topic: ${titleEn}`.slice(0, 1500);
+    // שלב 1: תרגום/שכתוב לאנגלית (רק אם צריך) + לוג
+    const english = await translateToEnglishIfNeeded(title);
+    const prompt  = buildSafePrompt(english);
+    logger.info("[hero] finalPromptForImage", { prompt });
 
-    // 3) יצירת תמונה
-    const b64 = await generateFluxImageBase64(prompt, 6);
-    const buffer = Buffer.from(b64, "base64");
+    // שלב 2: יצירת תמונה עם FLUX — ללא שינוי
+    const w = 1344, h = 768; // 16:9
+    const genBody = {
+      prompt,
+      width: w,
+      height: h,
+      steps: 6, // FLUX Schnell מגביל ל-<=8
+    };
 
-    // 4) העלאה ל-Storage
-    const bucket = admin.storage().bucket();
-    const filePath = `forms/${formId}/hero-${Date.now()}.jpg`;
+    let imageB64: string | undefined;
+    try {
+      const res = await runCFModel(imageModel, genBody);
+      imageB64 = (res as any)?.result?.image || (res as any)?.image || "";
+    } catch (e: any) {
+      logger.error("[hero] image model failed", { error: String(e) });
+      throw new Error("image_generation_failed");
+    }
 
-    const token =
-      (globalThis as any).crypto?.randomUUID?.() || Math.random().toString(36).slice(2);
+    if (!imageB64) {
+      logger.error("[hero] empty image payload");
+      throw new Error("empty_image");
+    }
 
-    await bucket.file(filePath).save(buffer, {
-      resumable: false,
-      metadata: {
-        contentType: "image/jpeg",
-        cacheControl: "public, max-age=31536000",
-        metadata: { firebaseStorageDownloadTokens: token },
-      },
-    });
+    // שלב 3: שמירה ל-Storage והחזרת URL
+    const heroUrl = await savePngToStorage(formId, imageB64);
 
-    const heroUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(
-      filePath
-    )}?alt=media&token=${token}`;
+    // עדכון השדה ב-forms/<id>
+    try {
+      const db = admin.firestore();
+      await db.collection("forms").doc(formId).set({ heroUrl }, { merge: true });
+    } catch (e: any) {
+      logger.warn("[hero] failed to update Firestore (forms.heroUrl) — still returning URL", {
+        formId, error: String(e),
+      });
+    }
 
-    // 5) עדכון הטופס
-    await admin.firestore().collection("forms").doc(formId).set(
-      { heroUrl, updatedAt: Date.now() },
-      { merge: true }
-    );
+    logger.info("[hero] done", { formId, heroUrl });
 
-    return { heroUrl };
+    return { heroUrl, translatedPrompt: english };
   }
 );

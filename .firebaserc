@@ -1,8 +1,3 @@
-{
-  "projects": {
-    "default": "chamama-forms",
-    "testing": "chamama-addfd"
-  },
-  "targets": {},
-  "etags": {}
+﻿{
+  "projects": { "default": "chamama-addfd" }
 }

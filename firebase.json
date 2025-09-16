@@ -1,39 +1,30 @@
-{
+﻿{
+  "projects": { "default": "chamama-addfd" },
+
+  "hosting": {
+    "source": ".",
+    "frameworksBackend": { "region": "us-central1" }
+  },
+
+  "emulators": {
+    "hub": { "port": 4400 },
+    "ui": { "enabled": true, "port": 4000 },
+    "firestore": { "host": "127.0.0.1", "port": 8080 },
+    "auth": { "host": "127.0.0.1", "port": 9099 },
+    "storage": { "host": "127.0.0.1", "port": 9199 },
+    "functions": { "host": "127.0.0.1", "port": 5001 }
+  },
+
   "firestore": {
-    "database": "(default)",
-    "location": "me-west1",
     "rules": "firestore.rules",
     "indexes": "firestore.indexes.json"
   },
-  "functions": [
-    {
-      "source": "functions",
-      "codebase": "default",
-      "ignore": [
-        "node_modules",
-        ".git",
-        "firebase-debug.log",
-        "firebase-debug.*.log",
-        "*.local"
-      ],
-      "predeploy": [
-        "npm --prefix functions run lint",
-        "npm --prefix \"$RESOURCE_DIR\" run build"
-      ]
-    }
-  ],
+
   "storage": {
     "rules": "storage.rules"
   },
-  "emulators": {
-  "auth": { "port": 9099 },
-  "functions": { "port": 5001 },
-  "firestore": { "port": 8080 },
-  "database": { "port": 9000 },
-  "storage": { "port": 9199 },
-  "ui": { "enabled": true },
-  "hub": { "port": 4400 },
-  "singleProjectMode": true,
-  "exportOnExit": { "path": "emulator-data" }
-}
+
+  "functions": {
+    "source": "functions"
+  }
 }

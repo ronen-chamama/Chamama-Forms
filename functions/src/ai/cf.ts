@@ -1,75 +1,45 @@
-// functions/src/ai/cf.ts
-import { HttpsError } from "firebase-functions/v2/https";
+import { defineSecret } from "firebase-functions/params";
+import { logger } from "firebase-functions";
 
-// קרדנציאלס מה־env (ראה הוראות למטה)
-const ACCOUNT_ID = process.env.CF_ACCOUNT_ID ?? "";
-const API_TOKEN  = process.env.CF_API_TOKEN  ?? "";
+/**
+ * סודות "חובה" בלבד — אין כאן CF_TRANSLATE_MODEL כדי לא לחייב אותו בזמן deploy.
+ */
+export const CF_ACCOUNT_ID = defineSecret("CF_ACCOUNT_ID");
+export const CF_API_TOKEN  = defineSecret("CF_API_TOKEN");
+export const CF_IMAGE_MODEL = defineSecret("CF_IMAGE_MODEL");
 
-// בדיקת קרדנציאלס
-function assertCreds() {
-  if (!ACCOUNT_ID || !API_TOKEN) {
-    throw new HttpsError("failed-precondition", "Missing CF_ACCOUNT_ID / CF_API_TOKEN");
+/**
+ * הרצה כללית של מודל ב-Cloudflare Workers AI.
+ * משמשת גם לטקסט (llama) וגם לתמונה (flux).
+ */
+export async function runCFModel(model: string, body: unknown) {
+  const accountId = CF_ACCOUNT_ID.value();
+  const token     = CF_API_TOKEN.value();
+  if (!accountId || !token) {
+    throw new Error("Missing CF account/token secrets");
   }
-}
 
-// קריאה כללית למודל של Workers AI (REST)
-export async function runWorkersAi(model: string, input: any) {
-  assertCreds();
-  const url = `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(
-    ACCOUNT_ID
-  )}/ai/run/${encodeURIComponent(model)}`;
-
+  const url = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${model}`;
   const res = await fetch(url, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${API_TOKEN}`,
+      "Authorization": `Bearer ${token}`,
       "Content-Type": "application/json",
+      "Accept": "application/json",
     },
-    body: JSON.stringify(input),
+    body: JSON.stringify(body ?? {}),
   });
 
+  const text = await res.text();
   if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new HttpsError("internal", `Cloudflare AI error ${res.status}: ${body}`);
+    logger.error("[cf.run] HTTP error", { status: res.status, text, model, url });
+    throw new Error(`CF_HTTP_${res.status}: ${text}`);
   }
-  return res.json();
-}
 
-// זיהוי עברית בסיסי
-export function looksHebrew(s: string) {
-  return /[\u0590-\u05FF]/.test(s || "");
-}
-
-// תרגום לעברית→אנגלית (אם צריך)
-export async function toEnglishIfNeeded(title: string) {
-  if (!looksHebrew(title)) return title;
-
-  // מודל תרגום של Cloudflare (M2M100)
-  const out = await runWorkersAi("@cf/meta/m2m100-1.2b", {
-    text: String(title),
-    source_lang: "hebrew",
-    target_lang: "english",
-  });
-
-  const translated =
-    out?.result?.translated_text ??
-    out?.translated_text ??
-    "";
-  return translated || title;
-}
-
-// יצירת תמונה עם FLUX schnell – מחזיר Base64 של JPEG
-export async function generateFluxImageBase64(prompt: string, steps = 6) {
-  const out = await runWorkersAi("@cf/black-forest-labs/flux-1-schnell", {
-    prompt,
-    steps, // 1–8 מקובל
-  });
-
-  const b64 =
-    out?.result?.image ??
-    out?.image ??
-    (Array.isArray(out?.result) ? out.result[0]?.image : undefined);
-
-  if (!b64) throw new HttpsError("internal", "No image returned from Workers AI");
-  return String(b64);
+  try {
+    return JSON.parse(text);
+  } catch {
+    // יש מודלים שמחזירים טקסט פשוט — נחזיר אותו כמו שהוא
+    return { result: text, raw: text };
+  }
 }
