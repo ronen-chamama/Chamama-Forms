@@ -155,6 +155,8 @@ export default function EditFormPage() {
   const [dragKind, setDragKind] = useState<null | { kind: "palette"; ftype: FieldType } | { kind: "reorder"; index: number }>(null);
   const [overIndex, setOverIndex] = useState<number | null>(null);
 
+const lastPublishAtRef = useRef(0);
+
   // טעינת משתמש
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, setUser);
@@ -283,10 +285,20 @@ if (uid) {
 
     // פרסום ל-formsPublic בצד שרת (כדי לא להיתקע על rules) — עושים גם באוטוסייב כדי שהאתר הציבורי יתעדכן,
     // אבל אם תרצה לצמצם קריאות: אפשר להעביר את זה רק בשמירה ידנית.
-   try {
-  await publishPublic({ formId: id, publicId: pubId, payload: payloadClean });
-} catch (e) {
-  console.warn("[saveForm] publishFormPublic skipped:", e);
+  const now = Date.now();
+const THROTTLE_MS = 15_000;
+const canPublish = !isAuto || (now - lastPublishAtRef.current > THROTTLE_MS);
+
+if (canPublish) {
+  try {
+    await publishPublic({ formId: id, publicId: pubId, payload: payloadClean });
+    lastPublishAtRef.current = now;
+  } catch (e) {
+    console.warn("[saveForm] publishFormPublic skipped:", e);
+  }
+} else {
+  // אופציונלי: לוג שקט לדיבאג
+  // console.debug("[saveForm] publish throttled");
 }
 
     // === יצירת תמונת קאבר רק בשמירה ידנית ===
@@ -298,6 +310,25 @@ if (uid) {
         setGeneratingHero(true);
         try {
           const res = await genHero({ formId: id, title: currentTitle });
+          const newHeroUrl = (res.data as any)?.heroUrl;
+if (newHeroUrl) {
+  // עדכון ה-state
+  setForm((f) => (f ? { ...f, heroUrl: newHeroUrl } : f));
+
+  // התמדה במסמך הטופס (כדי שלא נצטרך getDownloadURL ונמנע 404-ים)
+  try {
+    await setDoc(
+      doc(db, "forms", id),
+      { heroUrl: newHeroUrl, updatedAt: Date.now() },
+      { merge: true }
+    );
+  } catch (e) {
+    console.warn("[saveForm] failed to persist heroUrl:", e);
+  }
+
+  lastGeneratedTitleRef.current = currentTitle;
+}
+
           const heroUrl = (res.data as any)?.heroUrl;
           if (heroUrl) {
             setForm((f) => (f ? { ...f, heroUrl } : f));
@@ -455,14 +486,17 @@ return (
         {/* אם יש תמונה – מציגים מעל הגרדיאנט */}
         {form.heroUrl ? (
           <Image
-            src={form.heroUrl}
+            src={form.heroUrl!}
             alt=""
             fill
             priority
             sizes="100vw"
             className="object-cover object-center"
             onError={(e) => console.warn("[hero] failed to load:", form.heroUrl, e)}
-            onLoadingComplete={() => console.log("[hero] loaded:", form.heroUrl)}
+            onLoad={(e) => {
+    const img = e.currentTarget as HTMLImageElement;
+    console.log('[hero] loaded:', img.currentSrc, img.naturalWidth, img.naturalHeight);
+  }}
           />
         ) : null}
 
@@ -471,11 +505,12 @@ return (
           <div className="relative w-[120px] h-[28px]">
             <Image
               src="/branding/logo-banner-color.png"
-              alt=""
+              alt="Chamama"
               fill
               sizes="120px"
               className="object-contain"
-              priority
+              loading="eager"          // ← במקום priority
+      fetchPriority="high"     // אופציונלי; לא יוצר <link rel="preload">
             />
           </div>
         </div>

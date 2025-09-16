@@ -267,7 +267,8 @@ return () => { cancelled = true; };
           fill
           sizes="120px"
           className="object-contain"
-          priority
+          loading="eager"       // ← במקום priority
+  fetchPriority="high"  // אופציונלי
         />
       </div>
     </div>

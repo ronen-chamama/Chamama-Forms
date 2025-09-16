@@ -84,6 +84,7 @@ export default function MyFormsPage() {
             submissionCount: data.submissionCount || 0,
             publicId: data.publicId,
             updatedAt: data.updatedAt,
+             heroUrl: data.heroUrl || null,
           } as FormListItem;
         });
 
@@ -110,34 +111,11 @@ export default function MyFormsPage() {
     setHeroUrls({});
     return;
   }
-
-  const storage = getStorage(); // אם אתה לא על הברירת-מחדל, תן שם באקט: getStorage(undefined, "gs://<your-bucket>")
-  let cancelled = false;
-
-  (async () => {
-    const tasks = forms.map(async (f) => {
-      try {
-        const path = `forms/${f.id}/hero.png`;
-        const url = await getDownloadURL(storageRef(storage, path));
-        return { id: f.id, url };
-      } catch {
-        return null; // אין תמונה? נשאיר פלס-הולדר
-      }
-    });
-
-    const results = await Promise.allSettled(tasks);
-    if (cancelled) return;
-
-    const map: Record<string, string> = {};
-    for (const r of results) {
-      if (r.status === "fulfilled" && r.value) {
-        map[r.value.id] = r.value.url;
-      }
-    }
-    setHeroUrls(map);
-  })();
-
-  return () => { cancelled = true; };
+  const map: Record<string, string> = {};
+  for (const f of forms) {
+    if (f.heroUrl) map[f.id] = f.heroUrl;   // רק אם יש URL מוכן במסמך
+  }
+  setHeroUrls(map);
 }, [forms]);
 
   function newId() {
@@ -236,12 +214,13 @@ return (
           </div>
         ) : (
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {forms.map((form) => {
+            {forms.map((form, i) => {
               const pubId = (form.publicId && form.publicId.trim()) || form.id;
               const fillUrl =
                 typeof window !== "undefined" ? `${window.location.origin}/f/${pubId}` : `/f/${pubId}`;
               const isOpen = openMenuId === form.id;
               const hero = heroUrls[form.id] || null;
+              const isAboveFold = i < 3; 
 
               return (
                 <div
@@ -259,7 +238,7 @@ return (
                           fill
                           sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
                           className="object-cover"
-                          priority={false}
+                          priority={isAboveFold} 
                         />
                       ) : (
                         <div className="w-full h-full bg-gradient-to-br from-neutral-200 via-neutral-100 to-neutral-200" />

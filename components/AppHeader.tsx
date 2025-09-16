@@ -45,7 +45,8 @@ export default function AppHeader() {
     alt="תיכון החממה"
     width={340}
     height={88}
-    priority
+    loading="eager"       // ← במקום priority
+  fetchPriority="high"  // אופציונלי
     className="block h-auto"
     // ↓ בערך חצי מהמקדמים הקודמים
     style={{ width: "clamp(100px, 13vw, 170px)" }}
