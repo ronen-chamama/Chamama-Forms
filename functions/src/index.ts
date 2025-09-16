@@ -536,7 +536,16 @@ export const submitFormToDrive = functions
       fileName,
       pdfBuffer
     );
-
+try {
+      await db.doc(`forms/${resolvedFormId}`).update({
+        submissionCount: admin.firestore.FieldValue.increment(1),
+        lastSubmissionAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      console.log("[submitFormToDrive] submissionCount incremented", { resolvedFormId });
+    } catch (e) {
+      console.error("[submitFormToDrive] failed to increment submissionCount", e);
+      // לא מפילים את כל התהליך אם המייל נשלח; רק לוג
+    }
     return { ok: true, fileName, mailedTo: recipients, formId: resolvedFormId };
   });
 
@@ -591,6 +600,7 @@ export const submitFormToDrive = functions
 
     // כתיבה למסמך הציבורי
     await db.doc(`formsPublic/${publicId}`).set(publicDoc, { merge: true });
+// הגדלת מונה הגשות + חותמת זמן אחרונה (בשרת בלבד)
 
     return { ok: true };
   });

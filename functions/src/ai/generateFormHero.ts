@@ -63,10 +63,10 @@ async function translateToEnglishIfNeeded(title: string): Promise<string> {
 function buildSafePrompt(englishShort: string) {
   const core = englishShort || "abstract minimal website header";
   return [
-    "A retro 1990s clip art, cartoon vector illustration, flat colors Clipart illustration of",
+    "A manga style illustration of",
     core,
     "((no text)), ((no logos))",
-    "School, education, minimalism, clean lines, colorful background",
+    "high School, teenagers, education, colorful background",
   ].join(", ");
 }
 
